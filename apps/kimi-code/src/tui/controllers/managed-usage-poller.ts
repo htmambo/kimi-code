@@ -1,16 +1,15 @@
 /**
- * Periodic managed-usage fetcher for the footer's `usage` status-line slot.
+ * Periodic managed-usage fetcher for the footer's quota progress bars.
  *
  * Calls the same platform endpoint as `/usage` and publishes the latest
- * snapshot into AppState so the footer can render the 5h / weekly quota
- * badge and hand the rows to the user's status line command.
+ * snapshot into AppState so the footer can render the multi-line quota
+ * progress bars (line 2+) and hand the rows to a custom status line command.
  *
- * Polling only runs while the current model belongs to a managed provider
- * (Kimi) and some consumer is active — the `usage` slot being visible, or a
- * configured status line command. Failures keep the previous snapshot;
- * unchanged snapshots are not re-published.
+ * Polling runs while the current model belongs to a managed provider (Kimi).
+ * Failures keep the previous snapshot; unchanged snapshots are not re-published.
  */
 
+import { formatDuration } from '@moonshot-ai/kimi-code-oauth';
 import type { KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 
 import { isManagedUsageProvider } from '../constant/kimi-tui';
@@ -18,6 +17,32 @@ import type { AppState, ManagedUsageSnapshot } from '../types';
 
 const TICK_INTERVAL_MS = 15_000;
 const FETCH_INTERVAL_MS = 60_000;
+
+/**
+ * Build a human-readable label for a managed-usage row, matching the style
+ * used by the /usage panel: "5h limit", "Weekly limit", etc.
+ */
+function usageRowLabel(row: { readonly name?: string; readonly window?: { unit: string; duration: number } }): string {
+  const w = row.window;
+  if (w !== undefined) {
+    if (w.unit === 'week') return 'Weekly limit';
+    return `${String(w.duration)}${w.unit[0] ?? ''} limit`;
+  }
+  return row.name ?? 'Limit';
+}
+
+/**
+ * Relative-time reset hint, e.g. "resets in 2h 30m". Returns undefined when
+ * the timestamp is missing or unparseable.
+ */
+function usageRowResetHint(resetAt: string | undefined): string | undefined {
+  if (resetAt === undefined) return undefined;
+  const parsed = Date.parse(resetAt);
+  if (!Number.isFinite(parsed)) return undefined;
+  const diffSec = Math.floor((parsed - Date.now()) / 1000);
+  if (diffSec <= 0) return 'reset';
+  return `resets in ${formatDuration(diffSec)}`;
+}
 
 export interface ManagedUsagePollerOptions {
   readonly harness: KimiHarness;
@@ -40,20 +65,9 @@ export function createManagedUsagePoller(
 
   async function refresh(): Promise<void> {
     const state = options.getState();
-    // Only poll when there is a consumer: the built-in `usage` slot is in
-    // the configured items (or default items include it), or a custom
-    // status line command is set.
-    const items = state.statusLine?.items;
-    const hasUsageSlot =
-      items === null || items === undefined
-        ? // Default items include `usage` when we add it below; check via
-          // the shared constant would create a circular dep, so just
-          // assume default layout shows usage.
-          true
-        : items.includes('usage');
-    const hasCustomCommand =
-      state.statusLine?.command !== null && state.statusLine?.command !== undefined;
-    if (!hasUsageSlot && !hasCustomCommand) return;
+    // The footer renders quota progress bars on line 2+ whenever managed-
+    // usage data is available, and custom status line commands also
+    // consume it — so we always poll for managed providers.
 
     const providerKey = state.availableModels[state.model]?.provider;
     if (!isManagedUsageProvider(providerKey)) return;
@@ -73,17 +87,17 @@ export function createManagedUsagePoller(
         summary:
           res.summary !== null && res.summary !== undefined
             ? {
-                label: res.summary.name ?? '5h',
+                label: usageRowLabel(res.summary),
                 used: res.summary.used,
                 limit: res.summary.limit,
-                resetHint: res.summary.resetAt,
+                resetHint: usageRowResetHint(res.summary.resetAt),
               }
             : null,
         limits: res.limits.map((row) => ({
-          label: row.name ?? '',
+          label: usageRowLabel(row),
           used: row.used,
           limit: row.limit,
-          resetHint: row.resetAt,
+          resetHint: usageRowResetHint(row.resetAt),
         })),
         fetchedAt: lastFetchedAt,
       };

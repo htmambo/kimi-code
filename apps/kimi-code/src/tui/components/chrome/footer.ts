@@ -2,8 +2,16 @@
  * Footer/status bar — multi-line status display at the bottom of the TUI.
  *
  * Layout:
- *   Line 1: [yolo] [plan] <model> <cwd>  <git-badge>  <shortcut hints>
- *   Line 2: context: N% (tokens/max)
+ *   Line 1: [yolo] [plan] <model> <usage%> <cwd>  <git-badge>  <shortcut hints>
+ *   Line 2: [transient hint | first quota row | custom status line]
+ *             context: N% (tokens/max)
+ *   Line 3+: remaining quota rows; "Plan usage · updated HH:MM:SS" at the bottom
+ *
+ * When managed-usage data is available (Kimi plan quota), line 2's left slot
+ * shows the first quota row as a progress bar, and remaining rows follow from
+ * line 3 with a refresh stamp. When a `status_line.command` is set and there
+ * is no quota data, the command's first stdout line fills line 2's left slot.
+ * The transient hint takes precedence over both while visible.
  */
 
 import type { Component } from '@moonshot-ai/pi-tui';
@@ -15,7 +23,7 @@ import { ALL_TIPS, type ToolbarTip } from '#/tui/constant/tips';
 import { isRainbowDancing, renderDanceFooterModel } from '#/tui/easter-eggs/dance';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
-import type { AppState } from '#/tui/types';
+import type { AppState, ManagedUsageRowSnapshot } from '#/tui/types';
 import {
   StatusLineCommandRunner,
   type StatusLinePayload,
@@ -29,11 +37,13 @@ import {
 } from '#/utils/git/git-status';
 import {
   formatTokenCount,
+  ratioSeverity,
+  renderProgressBar,
   usagePercent,
   usagePercentFromRatio,
 } from '#/utils/usage/usage-format';
 
-const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'usage', 'tasks', 'cwd', 'git'] as const;
+const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git'] as const;
 
 const MAX_CWD_SEGMENTS = 3;
 const GOAL_TIMER_INTERVAL_MS = 1_000;
@@ -176,6 +186,20 @@ function formatContextStatus(usage: number, tokens?: number, maxTokens?: number)
     return `context: ${pct}% (${formatTokenCount(tokens)}/${formatTokenCount(maxTokens)})`;
   }
   return `context: ${String(usagePercentFromRatio(usage))}%`;
+}
+
+/** Local HH:MM:SS clock time for the usage block's "updated" stamp. */
+function formatClockTime(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/** Quota rows plus layout metadata for the managed-usage block. */
+interface UsageBlock {
+  readonly rows: readonly ManagedUsageRowSnapshot[];
+  readonly labelWidth: number;
+  readonly fetchedAt: number;
 }
 
 export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): string {
@@ -325,7 +349,8 @@ export class FooterComponent implements Component {
       }
     }
 
-    // ── Line 2: transient hint (bottom-left) + context (right) ──
+    // ── Line 2: transient hint or first quota row or custom status line (left) + context (right) ──
+    const usage = this.usageBlock();
     const contextText = formatContextStatus(
       state.contextUsage,
       state.contextTokens,
@@ -346,11 +371,72 @@ export class FooterComponent implements Component {
         ' '.repeat(pad) +
         chalk.hex(colors.text)(contextText);
     } else {
-      const leftPad = Math.max(0, width - contextWidth);
-      line2 = ' '.repeat(leftPad) + chalk.hex(colors.text)(contextText);
+      // The managed-usage block owns this slot with its first quota row;
+      // otherwise a configured custom status line fills it.
+      const content =
+        usage !== null ? this.renderUsageRow(usage.rows[0]!, usage.labelWidth) : customLine;
+      if (content === null) {
+        const leftPad = Math.max(0, width - contextWidth);
+        line2 = ' '.repeat(leftPad) + chalk.hex(colors.text)(contextText);
+      } else {
+        const shown = truncateToWidth(content, Math.max(0, width - contextWidth - 1));
+        const pad = Math.max(0, width - visibleWidth(shown) - contextWidth);
+        line2 = shown + ' '.repeat(pad) + chalk.hex(colors.text)(contextText);
+      }
     }
 
-    return [truncateToWidth(line1, width), truncateToWidth(line2, width)];
+    return [
+      truncateToWidth(line1, width),
+      truncateToWidth(line2, width),
+      ...this.renderUsageLines(width, usage),
+    ];
+  }
+
+  /**
+   * Quota rows for the managed-usage block, ordered with the windowed
+   * limits (5h) first and the weekly summary last — so the first row sits
+   * on line 2, the rest follow from line 3. Null when there is no snapshot
+   * or no rows to show.
+   */
+  private usageBlock(): UsageBlock | null {
+    const usage = this.state.managedUsage;
+    if (usage === null || usage === undefined) return null;
+    const rows = [...usage.limits, ...(usage.summary === null ? [] : [usage.summary])];
+    if (rows.length === 0) return null;
+    return {
+      rows,
+      labelWidth: Math.max(...rows.map((row) => row.label.length)),
+      fetchedAt: usage.fetchedAt,
+    };
+  }
+
+  /** One quota row: label, severity-coloured bar, percent, reset hint. */
+  private renderUsageRow(row: UsageBlock['rows'][number], labelWidth: number): string {
+    const colors = currentTheme.palette;
+    const ratio = row.limit > 0 ? row.used / row.limit : 0;
+    const severity = ratioSeverity(ratio);
+    const barColor =
+      severity === 'danger' ? colors.error : severity === 'warn' ? colors.warning : colors.success;
+    const bar = chalk.hex(barColor)(renderProgressBar(ratio, 20));
+    const pct = chalk.hex(colors.text)(`${String(usagePercent(row.used, row.limit))}% used`);
+    const reset =
+      row.resetHint === undefined ? '' : `  ${chalk.hex(colors.textMuted)(row.resetHint)}`;
+    return `${chalk.hex(colors.textDim)(row.label.padEnd(labelWidth, ' '))}  ${bar}  ${pct}${reset}`;
+  }
+
+  /**
+   * Remaining quota rows (after the first on line 2), then the "Plan usage ·
+   * updated HH:MM:SS" stamp at the bottom. Empty array when no usage block.
+   */
+  private renderUsageLines(width: number, usage: UsageBlock | null): string[] {
+    if (usage === null) return [];
+    const colors = currentTheme.palette;
+    const lines = usage.rows.slice(1).map((row) => this.renderUsageRow(row, usage.labelWidth));
+    lines.push(
+      chalk.hex(colors.primary).bold('Plan usage') +
+        chalk.hex(colors.textMuted)(` · updated ${formatClockTime(usage.fetchedAt)}`),
+    );
+    return lines.map((line) => truncateToWidth(line, width));
   }
 
   /**
