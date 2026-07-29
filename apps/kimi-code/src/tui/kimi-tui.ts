@@ -104,6 +104,10 @@ import { AuthFlowController } from './controllers/auth-flow';
 import { BtwPanelController } from './controllers/btw-panel';
 import { ClipboardImageHintController } from './controllers/clipboard-image-hint';
 import { EditorKeyboardController } from './controllers/editor-keyboard';
+import {
+  createManagedUsagePoller,
+  type ManagedUsagePoller,
+} from './controllers/managed-usage-poller';
 import { SessionEventHandler } from './controllers/session-event-handler';
 import { SessionReplayRenderer } from './controllers/session-replay';
 import { StreamingUIController } from './controllers/streaming-ui';
@@ -343,6 +347,9 @@ export class KimiTUI {
 
   /** Timer that auto-clears the one-shot "moved to background" footer hint. */
   private detachHintClearTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** Polls managed-usage (plan quota) data for the footer `usage` slot. */
+  private managedUsagePoller: ManagedUsagePoller | null = null;
 
   // The currently-mounted approval panel, if any. Kept so the full-screen
   // preview viewer can restore focus to the exact same instance (and its
@@ -843,6 +850,8 @@ export class KimiTUI {
     this.streamingUI.resetToolUi();
     this.disposeTranscriptChildren();
     this.editorKeyboard.dispose();
+    this.managedUsagePoller?.dispose();
+    this.managedUsagePoller = null;
     this.state.footer.dispose();
     for (const dispose of this.reverseRpcDisposers) {
       dispose();
@@ -968,6 +977,13 @@ export class KimiTUI {
     const footerWrap = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
     footerWrap.addChild(this.state.footer);
     this.state.ui.addChild(footerWrap);
+    this.managedUsagePoller = createManagedUsagePoller({
+      harness: this.harness,
+      getState: () => this.state.appState,
+      onUpdate: (snapshot) => {
+        this.setAppState({ managedUsage: snapshot });
+      },
+    });
   }
 
   // =========================================================================

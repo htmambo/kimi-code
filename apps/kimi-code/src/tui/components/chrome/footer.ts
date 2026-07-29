@@ -33,7 +33,7 @@ import {
   usagePercentFromRatio,
 } from '#/utils/usage/usage-format';
 
-const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git'] as const;
+const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'usage', 'tasks', 'cwd', 'git'] as const;
 
 const MAX_CWD_SEGMENTS = 3;
 const GOAL_TIMER_INTERVAL_MS = 1_000;
@@ -363,6 +363,7 @@ export class FooterComponent implements Component {
       mode: [],
       goal: [],
       model: [],
+      usage: [],
       tasks: [],
       cwd: [],
       git: [],
@@ -408,6 +409,17 @@ export class FooterComponent implements Component {
       slots['model'] = [renderedModelLabel];
     }
 
+    // Managed-usage quota badge (weekly plan limit). Shown as a compact
+    // percentage so it fits on line 1; the full breakdown lives in /usage.
+    const usage = state.managedUsage;
+    if (usage !== undefined && usage !== null && usage.summary !== null) {
+      const ratio = usage.summary.limit > 0 ? usage.summary.used / usage.summary.limit : 0;
+      const pct = usagePercentFromRatio(ratio);
+      const label = usage.summary.label;
+      const usageColor = ratio >= 0.9 ? colors.warning : colors.textDim;
+      slots['usage'] = [chalk.hex(usageColor)(`${label}: ${String(pct)}%`)];
+    }
+
     // Background-task badges. `bash-*` tasks (shell processes) and `agent-*`
     // tasks (background subagents) stay separate so the user can tell them
     // apart at a glance.
@@ -437,6 +449,7 @@ export class FooterComponent implements Component {
 
   private statusLinePayload(): StatusLinePayload {
     const state = this.state;
+    const usage = state.managedUsage;
     return {
       model: modelDisplayName(state),
       cwd: state.workDir,
@@ -448,6 +461,14 @@ export class FooterComponent implements Component {
       maxContextTokens: state.maxContextTokens,
       sessionId: state.sessionId,
       version: state.version,
+      managedUsage:
+        usage !== undefined && usage !== null
+          ? {
+              summary: usage.summary,
+              limits: usage.limits,
+              fetchedAt: usage.fetchedAt,
+            }
+          : null,
     };
   }
 
