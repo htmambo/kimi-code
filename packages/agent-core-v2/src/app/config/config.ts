@@ -1,5 +1,5 @@
 /**
- * `config` domain (L2) — configuration registry and layered global config service.
+ * `config` domain — configuration registry and layered global config service.
  *
  * Defines the config service identifiers and section models: the
  * `IConfigRegistry` for section schemas, and the App-scoped `IConfigService`
@@ -203,6 +203,10 @@ export interface IConfigService {
   getAll(): ResolvedConfig;
   set(domain: string, patch: unknown, target?: ConfigTarget): Promise<void>;
   replace(domain: string, value: unknown, target?: ConfigTarget): Promise<void>;
+  replaceSections(
+    sections: Readonly<Record<string, unknown>>,
+    target?: ConfigTarget,
+  ): Promise<void>;
   reload(): Promise<void>;
   diagnostics(): readonly ConfigDiagnostic[];
 }
