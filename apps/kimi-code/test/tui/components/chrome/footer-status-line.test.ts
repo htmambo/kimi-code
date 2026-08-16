@@ -11,7 +11,7 @@ import {
   StatusLineCommandRunner,
   type StatusLinePayload,
 } from '#/tui/utils/status-line-command';
-import type { AppState } from '#/tui/types';
+import type { AppState, ManagedUsageSnapshot } from '#/tui/types';
 
 const baseState: AppState = {
   version: '1.2.3',
@@ -202,6 +202,22 @@ describe('FooterComponent status_line command', () => {
 
     expect(plain(footer.render(120)[0]!)).toContain('kimi-k2');
   });
+
+  it('does not repeat the command output on line 2', async () => {
+    const state: AppState = {
+      ...baseState,
+      statusLine: { items: null, command: 'printf "my-custom-status"' },
+    };
+    const footer = new FooterComponent(state);
+    footer.render(120); // kicks the first command run
+
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    const lines = footer.render(120).map(plain);
+    expect(lines[0]).toContain('my-custom-status');
+    expect(lines[1]).not.toContain('my-custom-status');
+    expect(lines).toHaveLength(2);
+  });
 });
 
 describe('StatusLineCommandRunner', () => {
@@ -259,5 +275,44 @@ describe('StatusLineCommandRunner', () => {
     const line1 = plain(footer.render(120)[0]!);
     expect(line1).toContain('bbb');
     expect(line1).not.toContain('aaa');
+  });
+});
+
+describe('FooterComponent managed usage', () => {
+  const managedUsage: ManagedUsageSnapshot = {
+    summary: { label: 'Weekly limit', used: 40, limit: 100, resetHint: 'resets in 3d' },
+    limits: [{ label: '5h limit', used: 10, limit: 100, resetHint: 'resets in 2h' }],
+    fetchedAt: Date.now(),
+  };
+
+  it('renders quota rows on line 2+ with the updated stamp', () => {
+    const footer = new FooterComponent({ ...baseState, managedUsage });
+
+    const lines = footer.render(120).map(plain);
+    expect(lines).toHaveLength(4);
+    expect(lines[1]).toContain('5h limit');
+    expect(lines[1]).toContain('10% used');
+    expect(lines[1]).toContain('context:');
+    expect(lines[2]).toContain('Weekly limit');
+    expect(lines[2]).toContain('40% used');
+    expect(lines[3]).toContain('Plan usage · updated');
+  });
+
+  it('renders the usage badge on line 1 only when configured in items', () => {
+    const withBadge = plain(
+      new FooterComponent({
+        ...baseState,
+        managedUsage,
+        statusLine: { items: ['model', 'usage'], command: null },
+      }).render(120)[0]!,
+    );
+    expect(withBadge).toContain('Weekly limit: 40%');
+
+    const defaultLine = plain(new FooterComponent({ ...baseState, managedUsage }).render(120)[0]!);
+    expect(defaultLine).not.toContain('Weekly limit');
+  });
+
+  it('renders no quota lines without a snapshot', () => {
+    expect(new FooterComponent({ ...baseState }).render(120)).toHaveLength(2);
   });
 });

@@ -475,8 +475,8 @@ MCP server 的声明配置写在 `~/.kimi-code/mcp.json` 或项目内 `.kimi-cod
 | `[notifications].enabled` | `boolean` | `true` | 是否发送桌面通知 |
 | `[notifications].notification_condition` | `string` | `unfocused` | 何时通知：`unfocused`（仅终端失去焦点时）或 `always`（总是） |
 | `[upgrade].auto_install` | `boolean` | `true` | 是否自动安装新版本 |
-| `[status_line].items` | `string[]` | `[]` | 底部状态栏第一行展示哪些内置槽位及其顺序：`mode`、`goal`、`model`、`tasks`、`cwd`、`git`、`tips`。缺省保持默认布局；未知 id 跳过并告警 |
-| `[status_line].command` | `string` | `""` | 自定义状态栏命令。其 stdout 第一行替换状态栏第一行，stdin 会收到 JSON 快照（model、cwd、git 分支、permission 模式、plan 模式、上下文用量、session id、版本）。运行上限 300ms、每秒最多一次；失败时回退内置布局 |
+| `[status_line].items` | `string[]` | `[]` | 底部状态栏第一行展示哪些内置槽位及其顺序：`mode`、`goal`、`model`、`tasks`、`cwd`、`git`、`tips`、`usage`。缺省保持默认布局；未知 id 跳过并告警。`usage` 槽位显示套餐配额徽标（周限额已用百分比），需要 Kimi 订阅登录 |
+| `[status_line].command` | `string` | `""` | 自定义状态栏命令。其 stdout 第一行替换状态栏第一行，stdin 会收到 JSON 快照（model、cwd、git 分支、permission 模式、plan 模式、上下文用量、session id、版本、套餐配额 `managedUsage`）。运行上限 300ms、每秒最多一次；失败时回退内置布局 |
 
 ```toml
 # ~/.kimi-code/tui.toml
@@ -499,6 +499,8 @@ auto_install = true
 # items = ["mode", "goal", "model", "tasks", "cwd", "git", "tips"]
 # command = "~/.kimi-code/statusline.sh"
 ```
+
+使用 Kimi 订阅登录后，底部状态栏还会在第一行下方显示套餐配额：每个限额（5 小时限额和周限额）一条进度条，标注各窗口的重置时间，底部附 "updated HH:MM:SS" 刷新时间戳，每分钟刷新一次。该区块只要有配额数据就会显示；`[status_line].items` 只控制第一行的可选徽标。
 
 修改在下次启动时生效，或用 `/reload-tui` 立即生效（只重载 `tui.toml`）；`/reload` 会同时重载 `config.toml` 和 `tui.toml`。
 
