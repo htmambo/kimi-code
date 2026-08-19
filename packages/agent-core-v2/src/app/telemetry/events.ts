@@ -235,6 +235,14 @@ export interface BackgroundTaskCompletedEvent {
   status: 'running' | 'completed' | 'failed' | 'timed_out' | 'killed' | 'lost';
 }
 
+export interface WaitForCompletedEvent {
+  outcome: 'completed' | 'timed_out' | 'task_not_found' | 'aborted';
+  timeout_ms: number;
+  waited_ms: number;
+  has_task_id: boolean;
+  extra_completed_count: number;
+}
+
 export interface ModelSwitchEvent {
   model: string;
 }
@@ -325,6 +333,10 @@ export interface GlobToolRgFallbackEvent {
 
 export interface FsGrepNodeFallbackEvent {
   reason: 'rg_missing';
+}
+
+export interface FsSuggestNodeFallbackEvent {
+  reason: 'rg_missing' | 'rg_error';
 }
 
 export interface SubagentCreatedEvent {
@@ -678,6 +690,18 @@ export const telemetryEventDefinitions = {
       status: 'Terminal task status',
     },
   }),
+  wait_for_completed: defineAgentTelemetryEvent<WaitForCompletedEvent>({
+    owner: 'kimi-code',
+    comment: 'A WaitFor tool call returns.',
+    properties: {
+      outcome:
+        'How the wait ended: the waited task finished, the wait timed out, the task id was unknown, or the wait was aborted',
+      timeout_ms: 'Timeout argument in milliseconds',
+      waited_ms: 'Actual wall-clock wait time in milliseconds',
+      has_task_id: 'Whether a specific task id was given',
+      extra_completed_count: 'Number of additional tasks that finished within the wait window',
+    },
+  }),
   model_switch: defineAgentTelemetryEvent<ModelSwitchEvent>({
     owner: 'kimi-code',
     comment: 'The active model is bound or switched.',
@@ -808,6 +832,11 @@ export const telemetryEventDefinitions = {
   fs_grep_node_fallback: defineTelemetryEvent<FsGrepNodeFallbackEvent>({
     owner: 'kimi-code',
     comment: 'The fs grep path falls back to the node implementation.',
+    properties: { reason: 'Why the fallback was taken' },
+  }),
+  fs_suggest_node_fallback: defineTelemetryEvent<FsSuggestNodeFallbackEvent>({
+    owner: 'kimi-code',
+    comment: 'The fs suggest path falls back to the node implementation.',
     properties: { reason: 'Why the fallback was taken' },
   }),
   subagent_created: defineTelemetryEvent<SubagentCreatedEvent>({
