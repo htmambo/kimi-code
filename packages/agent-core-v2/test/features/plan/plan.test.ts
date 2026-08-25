@@ -6,8 +6,9 @@ import type { ToolCall } from '#/kosong/contract/message';
 import { dirname, join } from 'pathe';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { IAgentContextInjectorService } from '#/agent/contextInjector/contextInjector';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { runWillBeginStepHooks, type StubLoop } from '../../agent/loop/stubs';
 import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
 import { IAgentPermissionRulesService } from '#/agent/permissionRules/permissionRules';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -71,21 +72,16 @@ function createPlanFileFakes(
   };
 }
 
-type InjectableDynamicInjector = {
-  inject(boundary: undefined, isNewTurn: boolean): Promise<void>;
-};
-
 describe('Plan service', () => {
   let activeFakes: PlanFakes;
   let context: IAgentContextMemoryService;
   let ctx: TestAgentContext;
-  let injector: InjectableDynamicInjector;
   let permissionRules: IAgentPermissionRulesService;
   let plan: IAgentPlanService;
   let profile: IAgentProfileService;
   let tempDirs: string[];
 
-  beforeEach(() => {
+  beforeEach(async () => {
     activeFakes = createPlanFakes();
     tempDirs = [];
     ctx = createTestAgent(
@@ -95,10 +91,11 @@ describe('Plan service', () => {
       }),
     );
     context = ctx.get(IAgentContextMemoryService);
-    injector = ctx.get(IAgentContextInjectorService) as unknown as InjectableDynamicInjector;
     permissionRules = ctx.get(IAgentPermissionRulesService);
     plan = ctx.get(IAgentPlanService);
     profile = ctx.get(IAgentProfileService);
+    await ctx.restorePersisted();
+    await ctx.restoreRuntimes();
   });
 
   afterEach(async () => {
@@ -716,7 +713,8 @@ describe('Plan service', () => {
         [wire] permission.set_mode         { "agentId": "main", "mode": "yolo", "time": "<time>" }
         [wire] plan_mode.enter             { "agentId": "main", "id": "test-plan", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "planMode": true }
-        [wire] prompt.accepted             { "agentId": "main", "promptId": "<msg-1>", "time": "<time>" }
+        [wire] prompt.accepted             { "agentId": "main", "promptId": "<msg-1>", "content": [ { "type": "text", "text": "Inspect without mutating files" } ], "time": "<time>" }
+        [emit] prompt.accepted             { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "content": [ { "type": "text", "text": "Inspect without mutating files" } ] }
         [wire] turn.prompt                 { "agentId": "main", "input": [ { "type": "text", "text": "Inspect without mutating files" } ], "origin": { "kind": "user" }, "time": "<time>" }
         [emit] turn.started                { "time": "<time>", "agentId": "main", "turnId": 0, "origin": { "kind": "user" }, "prompt": "Inspect without mutating files" }
         [emit] agent.activity.updated      { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 0, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
@@ -796,7 +794,8 @@ describe('Plan service', () => {
         [wire] permission.set_mode         { "agentId": "main", "mode": "yolo", "time": "<time>" }
         [wire] plan_mode.enter             { "agentId": "main", "id": "test-plan", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "planMode": true }
-        [wire] prompt.accepted             { "agentId": "main", "promptId": "<msg-1>", "time": "<time>" }
+        [wire] prompt.accepted             { "agentId": "main", "promptId": "<msg-1>", "content": [ { "type": "text", "text": "Remove forbidden.txt" } ], "time": "<time>" }
+        [emit] prompt.accepted             { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "content": [ { "type": "text", "text": "Remove forbidden.txt" } ] }
         [wire] turn.prompt                 { "agentId": "main", "input": [ { "type": "text", "text": "Remove forbidden.txt" } ], "origin": { "kind": "user" }, "time": "<time>" }
         [emit] turn.started                { "time": "<time>", "agentId": "main", "turnId": 0, "origin": { "kind": "user" }, "prompt": "Remove forbidden.txt" }
         [emit] agent.activity.updated      { "time": "<time>", "lifecycle": "ready", "turn": { "turnId": 0, "origin": { "kind": "user" }, "phase": "running", "step": 0, "ending": false, "pendingApprovals": [], "activeToolCalls": [], "since": "<time>" }, "background": [], "agentId": "main" }
@@ -917,7 +916,7 @@ describe('Plan service', () => {
   }
 
   async function injectDynamic(): Promise<void> {
-    await injector.inject(undefined, false);
+    await runWillBeginStepHooks(ctx.get(IAgentLoopService) as StubLoop, false);
   }
 });
 
