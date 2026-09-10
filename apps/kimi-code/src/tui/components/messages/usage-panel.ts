@@ -15,6 +15,9 @@ import {
   renderProgressBar,
   safeUsageRatio,
   usagePercent,
+  usageRowLabel,
+  usageRowResetHint,
+  type ManagedUsageRow,
 } from '#/utils/usage/usage-format';
 import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
