@@ -273,6 +273,7 @@ describe('Remote Control tunnel', () => {
     );
 
     let localHttpRequest: IncomingMessage | undefined;
+    let localHttpBodyBytes = 0;
     let localWsRequest: IncomingMessage | undefined;
     const localWsServer = new WebSocketServer({ noServer: true });
     const assetJs = `const boot = "/assets/boot.js";\n${'const chunk = "/assets/chunk.js";\n'.repeat(120)}`;
@@ -307,13 +308,20 @@ describe('Remote Control tunnel', () => {
         response.end(assetText);
         return;
       }
-      response.writeHead(200, {
-        'Content-Type': 'text/html',
-        'Cache-Control': 'public, max-age=31536000, immutable',
-        Connection: 'X-Remove',
-        'X-Remove': 'gone',
+      let bodyBytes = 0;
+      request.on('data', (chunk: Buffer) => {
+        bodyBytes += chunk.length;
       });
-      response.end('<html><head></head><script src="/boot.js"></script></html>');
+      request.on('end', () => {
+        localHttpBodyBytes = bodyBytes;
+        response.writeHead(200, {
+          'Content-Type': 'text/html',
+          'Cache-Control': 'public, max-age=31536000, immutable',
+          Connection: 'X-Remove',
+          'X-Remove': 'gone',
+        });
+        response.end('<html><head></head><script src="/boot.js"></script></html>');
+      });
     });
     localServer.on('upgrade', (request, socket, head) => {
       localWsRequest = request;
@@ -455,11 +463,37 @@ describe('Remote Control tunnel', () => {
     expect(gzipHead).toContain('HTTP/1.1 200 OK');
     expect(gzipHead).toContain('Content-Encoding: gzip');
     expect(gzipHead).toContain('Vary: Accept-Encoding');
-    expect(gzipHead).not.toContain('ETag');
+    expect(gzipHead).toContain('Cache-Control: no-cache');
+    const rewrittenETag = /ETag: (W\/"[0-9a-f]{64}")/.exec(gzipHead)?.[0];
+    expect(rewrittenETag).toBeDefined();
     expect(gzipHead).toContain(`Content-Length: ${gzipBody.length}`);
     expect(gunzipSync(gzipBody).toString()).toBe(
       assetJs.replaceAll('"/assets/', `"/coding-relay/devices/${handle.deviceId}/assets/`),
     );
+
+    const revalidateResponsePromise = nextJsonMessage(httpConnections[0]!);
+    httpConnections[0]!.send(
+      JSON.stringify({
+        request_id: 'request-3b',
+        type: 'request',
+        is_last: true,
+        body_base64: Buffer.from(
+          `GET /assets/index.js HTTP/1.1\r\nHost: relay.test\r\nAccept-Encoding: br, gzip\r\nIf-None-Match: ${rewrittenETag!.replace('ETag: ', '')}\r\n\r\n`,
+        ).toString('base64'),
+      }),
+    );
+    const revalidateResponse = Buffer.from(
+      (await revalidateResponsePromise)['body_base64'] as string,
+      'base64',
+    );
+    const revalidateHead = revalidateResponse
+      .subarray(0, revalidateResponse.indexOf('\r\n\r\n'))
+      .toString('latin1');
+    expect(revalidateHead).toContain('HTTP/1.1 304 Not Modified');
+    expect(revalidateHead).toContain('Cache-Control: no-cache');
+    expect(revalidateHead).toContain(rewrittenETag!);
+    expect(revalidateHead).not.toContain('Content-Encoding');
+    expect(revalidateHead).not.toContain('Content-Length');
 
     const binaryResponsePromise = nextJsonMessage(httpConnections[0]!);
     httpConnections[0]!.send(
@@ -501,7 +535,8 @@ describe('Remote Control tunnel', () => {
     const excludedHead = excludedResponse.subarray(0, excludedSeparator).toString('latin1');
     expect(excludedHead).not.toContain('Content-Encoding');
     expect(excludedHead).toContain('Vary: Accept-Encoding');
-    expect(excludedHead).toContain('ETag: "v1"');
+    expect(excludedHead).toContain(rewrittenETag!);
+    expect(excludedHead).not.toContain('ETag: "v1"');
     expect(excludedResponse.subarray(excludedSeparator + 4).toString()).toBe(
       assetJs.replaceAll('"/assets/', `"/coding-relay/devices/${handle.deviceId}/assets/`),
     );
@@ -546,6 +581,25 @@ describe('Remote Control tunnel', () => {
     expect(rangeHead).toContain('Content-Range: bytes 0-2047/4096');
     expect(rangeHead).not.toContain('Content-Encoding');
     expect(rangeResponse.subarray(rangeSeparator + 4).toString()).toBe(assetText);
+
+    const largeBody = Buffer.alloc(4 * 1024 * 1024 + 512 * 1024, 0x61);
+    const largeRequest = Buffer.concat([
+      Buffer.from(`POST /upload HTTP/1.1\r\nHost: relay.test\r\nContent-Length: ${largeBody.length}\r\n\r\n`),
+      largeBody,
+    ]);
+    const largeResponsePromise = nextJsonMessage(httpConnections[0]!);
+    httpConnections[0]!.send(
+      JSON.stringify({
+        request_id: 'request-8',
+        type: 'request',
+        is_last: true,
+        body_base64: largeRequest.toString('base64'),
+      }),
+    );
+    const largeResponseMessage = await largeResponsePromise;
+    const largeResponse = Buffer.from(largeResponseMessage['body_base64'] as string, 'base64').toString();
+    expect(largeResponse).toContain('HTTP/1.1 200 OK');
+    expect(localHttpBodyBytes).toBe(largeBody.length);
 
     managementConnections[0]!.send(
       JSON.stringify({

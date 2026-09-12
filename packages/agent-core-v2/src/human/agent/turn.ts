@@ -3,7 +3,6 @@ import { assign, raise, setup } from '#/xstate2';
 import { emptyResponseError } from '#/llm/empty-response';
 import type { LlmErrorMessage } from '#/llm/errors';
 import { NO_FINISH, type FinishInfo } from '#/llm/finish-reason';
-import { credentialsRecovery } from '#/credentials/credentials';
 import {
   createMessageAccumulator,
   createToolMessage,
@@ -294,15 +293,11 @@ function proposeRecovery(
   recovery: LlmRecovery | undefined,
   ctx: LlmRecoveryContext,
 ): (LlmRecoveryProposal & LlmRecoveryRecord) | undefined {
-  const credentialProposal = credentialsRecovery.propose(ctx);
-  if (credentialProposal !== undefined) {
-    return { strategy: credentialsRecovery.id, ...credentialProposal };
-  }
   if (recovery === undefined) return undefined;
   const proposal = recovery.propose(ctx);
   if (proposal === undefined) return undefined;
   if (proposal.messages !== undefined && proposal.messages === ctx.messages) return undefined;
-  return { strategy: recovery.id, ...proposal };
+  return proposal;
 }
 
 function llmRetryingEvent(
@@ -381,6 +376,13 @@ export function createTurnMachine(
       },
       sendToParent: ({ self }, params: TurnLlmEvent) => {
         self._parent?.send(params);
+      },
+      discardAttemptStream: ({ context }) => {
+        context.accumulator.rollback();
+        context.accumulator = createHistoryAccumulator(
+          modelMeta(context.input.request.model),
+          context.toolCallIds,
+        );
       },
       salvageAborted: assign(({ context }) => {
         const partial = context.accumulator.finish({ source: 'salvaged' });
@@ -473,14 +475,11 @@ export function createTurnMachine(
                   recovery: context.appliedRecoveries.at(-1),
                 }),
               },
-              ({ context }) => {
-                context.accumulator.rollback();
-                context.accumulator = createHistoryAccumulator(
-                  modelMeta(context.input.request.model),
-                  context.toolCallIds,
-                );
-              },
+              'discardAttemptStream',
             ],
+          },
+          'llm.request.retrying': {
+            actions: ['discardAttemptStream'],
           },
           'llm.streaming.headers': {
             actions: [
@@ -602,9 +601,7 @@ export function createTurnMachine(
               actions: [
                 ({ context, event }) => {
                   context.accumulator.rollback();
-                  if (event.proposal?.refreshCredentials === true) {
-                    context.input.request.credentials?.invalidate?.();
-                  }
+                  event.proposal?.prepare?.();
                 },
                 assign(({ context, event }) => {
                   const proposal = event.proposal as LlmRecoveryProposal & LlmRecoveryRecord;
