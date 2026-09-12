@@ -114,6 +114,29 @@ pnpm lint       # 运行 oxlint
 pnpm build      # 构建所有包
 ```
 
+### 构建本地二进制
+
+CLI 同时以「单文件二进制」形式分发（基于 Node SEA + postject 注入的 JS bundle + Web 资源）。`pnpm build` 只产出 npm 版的 ESM 产物（`apps/kimi-code/dist/main.mjs`），不包含 SEA 二进制。
+
+无需切换工作目录即可构建 SEA 二进制：
+
+```sh
+pnpm install
+pnpm run build:packages
+pnpm -C apps/kimi-code run build:native:sea      # profile=local
+```
+
+构建带签名的发布版本：
+
+```sh
+pnpm -C apps/kimi-code run build:native:release
+```
+
+- 要求 **Node.js ≥ 24.15.0**（比 `apps/kimi-code/package.json` 中 `engines` 声明更严格；SEA 流水线会在 `scripts/native/build.mjs` 入口强制校验，不满足则直接退出）。
+- `build:packages` 是硬前置。`tsdown.native.config.ts` 会强制把全部 `@moonshot-ai/*` 工作区包打进去，解析依赖走的是 `package.json` 的 `exports` 字段（指向 `dist/`），没有这一步就解析不到。
+- 本地快速迭代可用 `pnpm -C apps/kimi-code run build:native:js`，只产出 `main.cjs` + worker bundles，跳过 SEA 注入 / 签名 / 校验步骤。
+- 如果 Web UI 有改动，先同步预构建产物再构建 SEA：`KIMI_CODE_REPO=$(pwd) pnpm run sync:web`。否则 `scripts/check-web-assets.mjs` 会在打包阶段拒绝构建。
+
 完整贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ## 社区

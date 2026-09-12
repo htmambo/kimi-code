@@ -110,6 +110,29 @@ pnpm lint       # oxlint
 pnpm build      # build all packages
 ```
 
+### Building native binaries
+
+The CLI also ships as a single self-contained binary (Node SEA + postject-injected JS bundle + web assets). `pnpm build` only produces the npm ESM artifact (`apps/kimi-code/dist/main.mjs`), not the SEA binary.
+
+Build the SEA binary without leaving the repo root:
+
+```sh
+pnpm install
+pnpm run build:packages
+pnpm -C apps/kimi-code run build:native:sea      # profile=local
+```
+
+For a signed release artifact:
+
+```sh
+pnpm -C apps/kimi-code run build:native:release
+```
+
+- Requires **Node.js ≥ 24.15.0** (stricter than `apps/kimi-code/package.json`'s `engines` declaration; the SEA pipeline enforces it via `scripts/native/build.mjs` and will exit otherwise).
+- `build:packages` is a hard prerequisite. `tsdown.native.config.ts` force-bundles every `@moonshot-ai/*` workspace package through its `package.json` `exports`, which point at `dist/` — without that step, the bundle cannot resolve them.
+- For a faster dev loop, `pnpm -C apps/kimi-code run build:native:js` produces only `main.cjs` + worker bundles and skips the SEA inject/sign/verify steps.
+- If the web UI changed, sync the prebuilt bundle before the SEA build: `KIMI_CODE_REPO=$(pwd) pnpm run sync:web`. Otherwise `scripts/check-web-assets.mjs` will reject the package.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
 
 ## Community
