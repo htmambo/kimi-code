@@ -6,10 +6,13 @@
  * progress bars (line 2+) and hand the rows to a custom status line command.
  *
  * Polling runs while the current model belongs to a managed provider (Kimi).
- * Failures keep the previous snapshot; switching to a non-managed provider
- * clears it; unchanged snapshots are not re-published. Model / model-list
- * changes are pushed in via `refreshNow()` instead of being discovered by a
- * fast tick, so the timer only ever runs at the fetch cadence.
+ * Failures and degraded payloads (an OK response without quota rows) keep the
+ * previous snapshot; switching to a non-managed provider clears it; a current
+ * model that is momentarily missing from the model list (mid-refresh) is
+ * skipped without clearing; unchanged snapshots are not re-published. Model /
+ * model-list changes are pushed in via `refreshNow()` instead of being
+ * discovered by a fast tick, so the timer only ever runs at the fetch
+ * cadence.
  *
  * Concurrent fetches are coalesced by a monotonically-increasing `generation`
  * counter: each `refresh()` call captures the current generation before the
@@ -62,6 +65,16 @@ export function createManagedUsagePoller(
     // consume it — so we always poll for managed providers.
 
     const providerKey = state.availableModels[state.model]?.provider;
+    if (providerKey === undefined && state.model.trim().length > 0) {
+      // The current model is set but missing from the loaded model list —
+      // the list is still loading or being rewritten by a background refresh.
+      // Skip this tick and keep any published snapshot; the model /
+      // availableModels patch that resolves the entry triggers refreshNow().
+      // Throttle and lastProviderKey stay untouched so that refetch is
+      // immediate. (An empty model still falls through to the non-managed
+      // branch below, so logout clears the snapshot as before.)
+      return;
+    }
     if (!isManagedUsageProvider(providerKey)) {
       // Non-managed providers have no quota to show: drop any snapshot a
       // previous managed provider published, and forget the provider key so
@@ -93,8 +106,14 @@ export function createManagedUsagePoller(
       if (disposed || generation !== myGeneration) return;
       if (res.kind === 'error') return;
 
+      const quotaRows = quotaUsageRows(res.quota);
+      // An OK response without any quota entries is a degraded payload (the
+      // backend omitted the limit windows): keep the previous snapshot rather
+      // than blanking the footer until the next fetch restores the rows.
+      if (quotaRows.length === 0) return;
+
       const snapshot: ManagedUsageSnapshot = {
-        rows: quotaUsageRows(res.quota).map((row) => ({
+        rows: quotaRows.map((row) => ({
           label: row.name,
           usedRatio: row.usedRatio,
           resetHint: usageResetHint(row.resetAt),

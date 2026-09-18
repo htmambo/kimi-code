@@ -253,13 +253,67 @@ describe('ManagedUsagePoller', () => {
     expect(snap.rows[0]?.resetHint).toBe('resets in 2h 30m');
   });
 
-  it('omits quota entries the backend did not serve', async () => {
+  it('keeps the snapshot while the current model is not yet resolved in the model list', async () => {
+    getManagedUsage.mockResolvedValueOnce(wireOk({ limit5h: { usedRatio: 0.1 } }));
+    const poller = startPoller();
+    await tick();
+    const before = lastSnapshot(updates);
+    expect(before).not.toBeNull();
+
+    // Model-list refresh in flight: the current model is momentarily absent.
+    state = makeState({ availableModels: {} });
+    poller.refreshNow();
+    await tick();
+
+    // The list resolves again: the next refresh must refetch immediately
+    // instead of waiting out the fetch interval.
+    state = makeState();
+    getManagedUsage.mockResolvedValueOnce(wireOk({ limit5h: { usedRatio: 0.2 } }));
+    poller.refreshNow();
+    await tick();
+    poller.dispose();
+
+    expect(updates).toHaveLength(2);
+    expect(updates[0]).toBe(before);
+    expect(updates[1]?.rows[0]?.usedRatio).toBe(0.2);
+  });
+
+  it('does not fetch while the current model is unresolved, even at startup', async () => {
+    state = makeState({ availableModels: {} });
+    const poller = startPoller();
+    await tick();
+    expect(getManagedUsage).not.toHaveBeenCalled();
+
+    state = makeState();
+    getManagedUsage.mockResolvedValueOnce(wireOk({ limit5h: { usedRatio: 0.4 } }));
+    poller.refreshNow();
+    await tick();
+    poller.dispose();
+
+    expect(lastSnapshot(updates)?.rows[0]?.usedRatio).toBe(0.4);
+  });
+
+  it('keeps the previous snapshot when a response carries no quota rows', async () => {
+    getManagedUsage.mockResolvedValueOnce(wireOk({ limit5h: { usedRatio: 0.3 } }));
+    const poller = startPoller();
+    await tick();
+    const before = lastSnapshot(updates);
+    expect(before).not.toBeNull();
+
+    getManagedUsage.mockResolvedValueOnce(wireOk({}));
+    await vi.advanceTimersByTimeAsync(70_000);
+    poller.dispose();
+
+    expect(getManagedUsage).toHaveBeenCalledTimes(2);
+    expect(lastSnapshot(updates)).toBe(before);
+  });
+
+  it('does not publish when the backend serves no quota entries', async () => {
     getManagedUsage.mockResolvedValue(wireOk({}));
     const poller = startPoller();
     await tick();
     poller.dispose();
 
-    const snap = lastSnapshot(updates) as ManagedUsageSnapshot;
-    expect(snap.rows).toEqual([]);
+    expect(lastSnapshot(updates)).toBeNull();
   });
 });
