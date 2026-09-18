@@ -6,6 +6,20 @@
  */
 
 import { type ManagedQuota, type ManagedQuotaEntry } from '@moonshot-ai/kimi-code-oauth';
+import { formatDuration } from '@moonshot-ai/kimi-code-oauth';
+
+/**
+ * Relative-time reset hint for a quota entry, e.g. "resets in 2h 30m".
+ * Returns undefined when the timestamp is missing or unparseable.
+ */
+export function usageResetHint(resetAt: string | undefined): string | undefined {
+  if (resetAt === undefined) return undefined;
+  const parsed = Date.parse(resetAt);
+  if (!Number.isFinite(parsed)) return undefined;
+  const diffSec = Math.floor((parsed - Date.now()) / 1000);
+  if (diffSec <= 0) return 'reset';
+  return `resets in ${formatDuration(diffSec)}`;
+}
 
 /**
  * Format a token count in 1024-based units: context sizes are powers of

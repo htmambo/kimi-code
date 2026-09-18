@@ -133,6 +133,62 @@ describe('FooterComponent status_line items', () => {
 
     expect(plain(footer.render(120)[0]!).trim()).toBe('');
   });
+
+  it('renders the usage badge when the slot is selected and a snapshot is present', () => {
+    const state: AppState = {
+      ...baseState,
+      statusLine: { items: ['usage'], command: null },
+      managedUsage: {
+        rows: [
+          { label: '5h limit', usedRatio: 0.3 },
+          { label: 'Weekly limit', usedRatio: 0.73 },
+        ],
+        fetchedAt: 0,
+      },
+    };
+    const footer = new FooterComponent(state);
+
+    expect(plain(footer.render(120)[0]!)).toContain('Weekly limit: 73%');
+  });
+
+  it('falls back to the first quota row when the weekly row is absent', () => {
+    const state: AppState = {
+      ...baseState,
+      statusLine: { items: ['usage'], command: null },
+      managedUsage: {
+        rows: [{ label: '5h limit', usedRatio: 0.3 }],
+        fetchedAt: 0,
+      },
+    };
+    const footer = new FooterComponent(state);
+
+    expect(plain(footer.render(120)[0]!)).toContain('5h limit: 30%');
+  });
+
+  it('skips the usage badge when the slot is not in items', () => {
+    const state: AppState = {
+      ...baseState,
+      statusLine: { items: ['model', 'cwd'], command: null },
+      managedUsage: {
+        rows: [{ label: 'Weekly limit', usedRatio: 0.73 }],
+        fetchedAt: 0,
+      },
+    };
+    const footer = new FooterComponent(state);
+
+    expect(plain(footer.render(120)[0]!)).not.toContain('Weekly limit');
+  });
+
+  it('skips the usage badge when the snapshot has no rows', () => {
+    const state: AppState = {
+      ...baseState,
+      statusLine: { items: ['usage'], command: null },
+      managedUsage: { rows: [], fetchedAt: 0 },
+    };
+    const footer = new FooterComponent(state);
+
+    expect(plain(footer.render(120)[0]!)).not.toMatch(/\d+%/);
+  });
 });
 
 describe('runStatusLineCommand', () => {

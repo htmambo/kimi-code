@@ -83,6 +83,8 @@ export interface AppState {
   upgrade: UpgradePreferences;
   /** Footer status line customization from tui.toml; absent means the default layout. */
   statusLine?: StatusLineConfig;
+  /** Latest managed-usage snapshot (5h / weekly quota) for the footer usage slot. */
+  managedUsage?: ManagedUsageSnapshot | null;
   markdown?: MarkdownConfig;
   availableModels: Record<string, ModelAlias>;
   availableProviders: Record<string, ProviderConfig>;
@@ -348,3 +350,16 @@ export interface LoginProgressSpinnerHandle {
 }
 
 export type ProgressSpinnerHandle = LoginProgressSpinnerHandle;
+
+/** A single usage-quota row shown in the footer or the status-line payload. */
+export interface ManagedUsageRowSnapshot {
+  readonly label: string;
+  readonly usedRatio: number;
+  readonly resetHint?: string;
+}
+
+/** Managed-usage snapshot published into AppState by the poller. */
+export interface ManagedUsageSnapshot {
+  readonly rows: readonly ManagedUsageRowSnapshot[];
+  readonly fetchedAt: number;
+}

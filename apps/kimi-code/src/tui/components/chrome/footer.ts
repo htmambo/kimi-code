@@ -15,7 +15,7 @@ import { ALL_TIPS, type ToolbarTip } from '#/tui/constant/tips';
 import { isRainbowDancing, renderDanceFooterModel } from '#/tui/easter-eggs/dance';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
-import type { AppState } from '#/tui/types';
+import type { AppState, ManagedUsageRowSnapshot } from '#/tui/types';
 import { PERMISSION_MODE_DISPLAY_NAMES } from '#/tui/utils/permission-mode';
 import {
   StatusLineCommandRunner,
@@ -30,6 +30,9 @@ import {
 } from '#/utils/git/git-status';
 import {
   formatTokenCount,
+  ratioSeverity,
+  renderProgressBar,
+  safeUsageRatio,
   usagePercent,
   usagePercentFromRatio,
 } from '#/utils/usage/usage-format';
@@ -180,6 +183,20 @@ function formatContextStatus(usage: number, tokens?: number, maxTokens?: number)
     return `context: ${pct}% (${formatTokenCount(tokens)}/${formatTokenCount(maxTokens)})`;
   }
   return `context: ${String(usagePercentFromRatio(usage))}%`;
+}
+
+/** Local HH:MM:SS clock time for the usage block's "updated" stamp. */
+function formatClockTime(ms: number): string {
+  const d = new Date(ms);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+/** Quota rows plus layout metadata for the managed-usage block. */
+interface UsageBlock {
+  readonly rows: readonly ManagedUsageRowSnapshot[];
+  readonly labelWidth: number;
+  readonly fetchedAt: number;
 }
 
 export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): string {
@@ -359,7 +376,8 @@ export class FooterComponent implements Component {
       }
     }
 
-    // ── Line 2: hint (bottom-left) + context (right) ──
+    // ── Line 2: transient hint or first quota row or custom status line (left) + context (right) ──
+    const usage = this.usageBlock();
     const contextText = formatContextStatus(
       state.contextUsage,
       state.contextTokens,
@@ -367,6 +385,7 @@ export class FooterComponent implements Component {
     );
     const contextWidth = visibleWidth(contextText);
     let line2: string;
+    const line2ConsumedQuotaRow = false;
     const hint = this.transientHint ?? this.warningHint;
     if (hint) {
       const maxHintWidth = Math.max(0, width - contextWidth - 1);
@@ -390,7 +409,62 @@ export class FooterComponent implements Component {
       line2 = left + ' '.repeat(leftPad) + chalk.hex(colors.text)(contextText);
     }
 
-    return [truncateToWidth(line1, width), truncateToWidth(line2, width)];
+    return [
+      truncateToWidth(line1, width),
+      truncateToWidth(line2, width),
+      ...this.renderUsageLines(width, usage, line2ConsumedQuotaRow),
+    ];
+  }
+
+  /**
+   * Quota rows for the managed-usage block, in payload order (5h, weekly,
+   * monthly as served). Null when there is no snapshot or no rows to show.
+   */
+  private usageBlock(): UsageBlock | null {
+    const usage = this.state.managedUsage;
+    if (usage === null || usage === undefined) return null;
+    if (usage.rows.length === 0) return null;
+    return {
+      rows: usage.rows,
+      labelWidth: Math.max(...usage.rows.map((row) => row.label.length)),
+      fetchedAt: usage.fetchedAt,
+    };
+  }
+
+  /** One quota row: label, severity-coloured bar, percent, reset hint. */
+  private renderUsageRow(row: UsageBlock['rows'][number], labelWidth: number): string {
+    const colors = currentTheme.palette;
+    const ratio = safeUsageRatio(row.usedRatio);
+    const severity = ratioSeverity(ratio);
+    const barColor =
+      severity === 'danger' ? colors.error : severity === 'warn' ? colors.warning : colors.success;
+    const bar = chalk.hex(barColor)(renderProgressBar(ratio, 20));
+    const pct = chalk.hex(colors.text)(`${String(usagePercentFromRatio(row.usedRatio))}% used`);
+    const reset =
+      row.resetHint === undefined ? '' : `  ${chalk.hex(colors.textMuted)(row.resetHint)}`;
+    return `${chalk.hex(colors.textDim)(row.label.padEnd(labelWidth, ' '))}  ${bar}  ${pct}${reset}`;
+  }
+
+  /**
+   * Quota rows after line 2, then the "Plan usage · updated HH:MM:SS" stamp
+   * at the bottom. When a hint occupies line 2 the first quota row is still
+   * shown here (and `line2ConsumedQuotaRow` is false) so the 5h limit never
+   * disappears for the lifetime of a warning. Empty array when no usage block.
+   */
+  private renderUsageLines(
+    width: number,
+    usage: UsageBlock | null,
+    line2ConsumedQuotaRow: boolean,
+  ): string[] {
+    if (usage === null) return [];
+    const colors = currentTheme.palette;
+    const rows = line2ConsumedQuotaRow ? usage.rows.slice(1) : usage.rows;
+    const lines = rows.map((row) => this.renderUsageRow(row, usage.labelWidth));
+    lines.push(
+      chalk.hex(colors.primary).bold('Plan usage') +
+        chalk.hex(colors.textMuted)(` · updated ${formatClockTime(usage.fetchedAt)}`),
+    );
+    return lines.map((line) => truncateToWidth(line, width));
   }
 
   /** The fixed ctrl+o hint plus the first rotating tip that still fits beside it. */
@@ -426,6 +500,7 @@ export class FooterComponent implements Component {
       mode: [],
       goal: [],
       model: [],
+      usage: [],
       tasks: [],
       cwd: [],
       git: [],
@@ -472,6 +547,25 @@ export class FooterComponent implements Component {
       slots['model'] = [renderedModelLabel];
     }
 
+    // Managed-usage quota badge (weekly plan limit, falling back to the
+    // first served row). Opt-in via a `usage` entry in status_line.items;
+    // the full breakdown renders on lines 2+.
+    const usage = state.managedUsage;
+    if (usage !== undefined && usage !== null && usage.rows.length > 0) {
+      const badgeRow =
+        usage.rows.find((row) => row.label === 'Weekly limit') ?? usage.rows[0]!;
+      const ratio = safeUsageRatio(badgeRow.usedRatio);
+      const pct = usagePercentFromRatio(badgeRow.usedRatio);
+      const severity = ratioSeverity(ratio);
+      const usageColor =
+        severity === 'danger'
+          ? colors.error
+          : severity === 'warn'
+            ? colors.warning
+            : colors.textDim;
+      slots['usage'] = [chalk.hex(usageColor)(`${badgeRow.label}: ${String(pct)}%`)];
+    }
+
     // Background-task badges. `bash-*` tasks (shell processes) and `agent-*`
     // tasks (background subagents) stay separate so the user can tell them
     // apart at a glance.
@@ -512,6 +606,7 @@ export class FooterComponent implements Component {
       maxContextTokens: state.maxContextTokens,
       sessionId: state.sessionId,
       version: state.version,
+      managedUsage: state.managedUsage ?? null,
     };
   }
 
