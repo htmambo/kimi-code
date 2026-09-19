@@ -1222,7 +1222,7 @@ describe('ToolCallComponent', () => {
     });
 
     let out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Queued (explore project xxx) · 0 tools · 0s');
+    expect(out).toContain('Explore Agent Queued (explore project xxx) · 0s');
     expect(out).not.toContain('Using Agent');
     expect(out).not.toContain('Used Agent');
 
@@ -1236,7 +1236,7 @@ describe('ToolCallComponent', () => {
     });
 
     out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Running (explore project xxx) · 1 tool · 10s');
+    expect(out).toContain('Explore Agent Running (explore project xxx) · 1/1 tool · 10s');
     expect(out).toContain('Using Read (apps/kimi-code/src/tui/utils/background-agent-status.ts)');
     // Thinking and text are mutually exclusive in the active window: the most
     // recently streamed (text) wins, so thinking is hidden entirely.
@@ -1258,7 +1258,7 @@ describe('ToolCallComponent', () => {
     vi.setSystemTime(30_000);
 
     out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Completed (explore project xxx) · 1 tool · 12s');
+    expect(out).toContain('Explore Agent Completed (explore project xxx) · 1/1 tool · 12s');
     expect(out).not.toContain('think3');
     expect(out).toContain('│ answer3');
     expect(out).not.toContain('Used Agent');
@@ -1284,13 +1284,13 @@ describe('ToolCallComponent', () => {
     });
 
     let out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Queued (explore project) · 0 tools');
+    expect(out).toContain('Explore Agent Queued (explore project)');
     expect(out).not.toContain('Kimi K2.5');
 
     component.updateSubagentMetrics({ modelDisplay: 'Kimi K2.5' });
 
     out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Queued (explore project) · Kimi K2.5 · 0 tools');
+    expect(out).toContain('Explore Agent Queued (explore project) · Kimi K2.5');
     expect(component.getSubagentSnapshot().model).toBe('Kimi K2.5');
   });
 
@@ -1367,7 +1367,7 @@ describe('ToolCallComponent', () => {
     });
 
     const out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Running (inspect tools) · 5 tools · 0s');
+    expect(out).toContain('Explore Agent Running (inspect tools) · 1/5 tools · 0s');
     // Only the current (most recent ongoing) tool appears in the summary line.
     expect(out).toContain('Using Grep (auth)');
     // No per-tool activity rows are rendered.
@@ -1587,7 +1587,7 @@ describe('ToolCallComponent', () => {
     component.onSubagentFailed({ error: 'subagent exceeded max_steps' });
 
     const out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Failed (check failure) · 0 tools · 3s');
+    expect(out).toContain('Explore Agent Failed (check failure) · 3s');
     expect(out).toContain('│ subagent exceeded max_steps');
     expect(out).not.toContain('Using Agent');
     expect(out).not.toContain('Used Agent');

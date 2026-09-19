@@ -115,6 +115,9 @@ export interface ToolCallSubagentSnapshot {
   /** Thinking effort, present only for concrete levels (on/off hidden). */
   readonly effort?: string;
   readonly phase: SubagentPhase | undefined;
+  readonly toolCountFinished: number;
+  readonly toolCountOngoing: number;
+  /** @deprecated Use `toolCountFinished`. Kept for backward compatibility. */
   readonly toolCount: number;
   readonly elapsedSeconds: number | undefined;
   readonly tokens: number;
@@ -1136,6 +1139,8 @@ export class ToolCallComponent extends Container {
       model: this.subagentModel,
       effort: this.subagentEffort,
       phase: derivedPhase,
+      toolCountFinished: finished,
+      toolCountOngoing: this.ongoingSubCalls.size,
       toolCount: finished,
       elapsedSeconds: this.getSubagentElapsedSeconds(),
       tokens,
@@ -1998,8 +2003,12 @@ export class ToolCallComponent extends Container {
         break;
       case 'done': {
         parts.push(currentTheme.fg('success', '✓ done'));
-        const toolCount = this.finishedSubCalls.length + this.hiddenSubCallCount;
-        if (toolCount > 0) parts.push(`${String(toolCount)} tool${toolCount > 1 ? 's' : ''}`);
+        const ongoing = this.ongoingSubCalls.size;
+        const finished = this.finishedSubCalls.length + this.hiddenSubCallCount;
+        const total = ongoing + finished;
+        if (total > 0) {
+          parts.push(`${String(ongoing)}/${String(total)} tool${total === 1 ? '' : 's'}`);
+        }
         const tokens =
           formatSubagentContextTokens(this.subagentContextTokens) ??
           formatSubagentTokens(this.subagentUsage);
@@ -2098,7 +2107,11 @@ export class ToolCallComponent extends Container {
     const parts: string[] = [];
     if (this.subagentModel !== undefined) parts.push(this.subagentModel);
     if (this.subagentEffort !== undefined) parts.push(this.subagentEffort);
-    parts.push(`${String(this.subToolActivities.size)} tool${this.subToolActivities.size === 1 ? '' : 's'}`);
+    const ongoing = this.ongoingSubCalls.size;
+    const total = this.subToolActivities.size;
+    if (total > 0) {
+      parts.push(`${String(ongoing)}/${String(total)} tool${total === 1 ? '' : 's'}`);
+    }
     const elapsed = this.getSubagentElapsedSeconds();
     if (elapsed !== undefined) parts.push(formatElapsed(elapsed));
     const tokens =

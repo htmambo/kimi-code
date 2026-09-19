@@ -80,9 +80,9 @@ describe('AgentGroupComponent', () => {
 
     const output = renderText(group);
     expect(output).toContain('Running 2 agents (1 running, 1 waiting) · 0s');
-    expect(output).toContain('explore · inspect project · 0 tools · 0s · Running');
+    expect(output).toContain('explore · inspect project · 1/1 tool · 0s · Running');
     expect(output).toContain('Using Read (src/a.ts)');
-    expect(output).toContain('coder · write tests · 0 tools · 0s · Waiting');
+    expect(output).toContain('coder · write tests · 0s · Waiting');
     expect(output).toContain('Waiting to start…');
     expect(output).not.toContain('Initializing…');
 
@@ -100,12 +100,12 @@ describe('AgentGroupComponent', () => {
     startAgent(running, 'call_agent_1', 'explore');
 
     group.attach('call_agent_1', running);
-    expect(renderText(group)).toContain('explore · inspect project · 0 tools');
+    expect(renderText(group)).toContain('explore · inspect project');
 
     running.updateSubagentMetrics({ modelDisplay: 'Kimi K2.5' });
     // Non-phase updates are throttled; flush the pending refresh.
     vi.runOnlyPendingTimers();
-    expect(renderText(group)).toContain('explore · inspect project · Kimi K2.5 · 0 tools');
+    expect(renderText(group)).toContain('explore · inspect project · Kimi K2.5');
 
     group.dispose();
     running.dispose();
@@ -177,7 +177,7 @@ describe('AgentGroupComponent', () => {
 
     expect(ui.requestRender).toHaveBeenCalled();
     expect(renderText(group)).toContain('Running 2 agents (1 running, 1 waiting) · 1s');
-    expect(renderText(group)).toContain('explore · inspect project · 0 tools · 1s · Running');
+    expect(renderText(group)).toContain('explore · inspect project · 1s · Running');
 
     group.dispose();
     running.dispose();
@@ -202,8 +202,8 @@ describe('AgentGroupComponent', () => {
 
     const mixed = renderText(group);
     expect(mixed).toContain('Running 2 agents (1 done, 1 running) · 12s');
-    expect(mixed).toContain('explore · inspect project · 0 tools · 12s · ✓ Completed');
-    expect(mixed).toContain('coder · write tests · 0 tools · 12s · Running');
+    expect(mixed).toContain('explore · inspect project · 12s · ✓ Completed');
+    expect(mixed).toContain('coder · write tests · 12s · Running');
 
     vi.setSystemTime(15_000);
     running.onSubagentFailed({ error: 'review failed' });
@@ -249,5 +249,41 @@ describe('AgentGroupComponent', () => {
     group.dispose();
     a.dispose();
     b.dispose();
+  });
+
+  it('renders tool counts as running/total in row stats and the finished header', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const ui = stubTui();
+    const group = new AgentGroupComponent(ui);
+    const agent = createAgent('call_agent_x_y', 'inspect project', 'explore', ui);
+    startAgent(agent, 'call_agent_x_y', 'explore');
+
+    for (let i = 1; i <= 4; i++) {
+      const id = `sub_x_y:read-${String(i)}`;
+      agent.appendSubToolCall({ id, name: 'Read', args: { path: `file${String(i)}.ts` } });
+      agent.finishSubToolCall({ tool_call_id: id, output: 'ok', is_error: false });
+    }
+    agent.appendSubToolCall({
+      id: 'sub_x_y:grep',
+      name: 'Grep',
+      args: { pattern: 'auth' },
+    });
+
+    group.attach('call_agent_x_y', agent);
+
+    const running = renderText(group);
+    expect(running).toContain('explore · inspect project · 1/5 tools · 0s · Running');
+
+    vi.setSystemTime(12_000);
+    agent.finishSubToolCall({ tool_call_id: 'sub_x_y:grep', output: 'ok', is_error: false });
+    agent.onSubagentCompleted({ resultSummary: 'done' });
+
+    const finished = renderText(group);
+    expect(finished).toContain('1 explore agents finished · 0/5 tools · 12s');
+    expect(finished).toContain('explore · inspect project · 0/5 tools · 12s · ✓ Completed');
+
+    group.dispose();
+    agent.dispose();
   });
 });

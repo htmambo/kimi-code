@@ -163,9 +163,15 @@ export class AgentGroupComponent extends Container {
         types.size === 1
           ? `${String(total)} ${[...types][0]} agents finished`
           : `${String(total)} agents finished`;
-      const totalTools = snapshots.reduce((acc, s) => acc + s.toolCount, 0);
+      const totalToolsFinished = snapshots.reduce((acc, s) => acc + s.toolCountFinished, 0);
+      const totalToolsOngoing = snapshots.reduce((acc, s) => acc + s.toolCountOngoing, 0);
       const totalTokens = snapshots.reduce((acc, s) => acc + s.tokens, 0);
-      const tail = formatHeaderTail({ toolCount: totalTools, tokens: totalTokens, elapsedSeconds });
+      const tail = formatHeaderTail({
+        toolCountFinished: totalToolsFinished,
+        toolCountOngoing: totalToolsOngoing,
+        tokens: totalTokens,
+        elapsedSeconds,
+      });
       return `${bullet}${currentTheme.boldFg('primary', headerLabel)}${tail}`;
     }
 
@@ -173,7 +179,12 @@ export class AgentGroupComponent extends Container {
     const headerText = parts.length > 0
       ? `Running ${String(total)} agents (${parts.join(', ')})`
       : `Running ${String(total)} agents`;
-    const tail = formatHeaderTail({ toolCount: 0, tokens: 0, elapsedSeconds });
+    const tail = formatHeaderTail({
+      toolCountFinished: 0,
+      toolCountOngoing: 0,
+      tokens: 0,
+      elapsedSeconds,
+    });
     return `${bullet}${currentTheme.boldFg('primary', headerText)}${tail}`;
   }
 
@@ -304,7 +315,10 @@ function formatStats(snap: ToolCallSubagentSnapshot): string {
   const parts: string[] = [];
   if (snap.model !== undefined) parts.push(snap.model);
   if (snap.effort !== undefined) parts.push(snap.effort);
-  parts.push(`${String(snap.toolCount)} tool${snap.toolCount === 1 ? '' : 's'}`);
+  const ongoing = snap.toolCountOngoing;
+  const finished = snap.toolCountFinished;
+  const total = ongoing + finished;
+  if (total > 0) parts.push(`${String(ongoing)}/${String(total)} tool${total === 1 ? '' : 's'}`);
   if (snap.elapsedSeconds !== undefined) parts.push(formatElapsed(snap.elapsedSeconds));
   if (snap.tokens > 0) parts.push(formatTokens(snap.tokens));
   return currentTheme.dim(` · ${parts.join(' · ')}`);
@@ -346,12 +360,18 @@ function fallbackActivityForPhase(phase: ToolCallSubagentSnapshot['phase']): str
 }
 
 function formatHeaderTail(args: {
-  readonly toolCount: number;
+  readonly toolCountFinished: number;
+  readonly toolCountOngoing: number;
   readonly tokens: number;
   readonly elapsedSeconds: number | undefined;
 }): string {
   const parts: string[] = [];
-  if (args.toolCount > 0) parts.push(`${String(args.toolCount)} tool${args.toolCount === 1 ? '' : 's'}`);
+  const total = args.toolCountFinished + args.toolCountOngoing;
+  if (total > 0) {
+    parts.push(
+      `${String(args.toolCountOngoing)}/${String(total)} tool${total === 1 ? '' : 's'}`,
+    );
+  }
   if (args.tokens > 0) parts.push(formatTokens(args.tokens));
   if (args.elapsedSeconds !== undefined) parts.push(formatElapsed(args.elapsedSeconds));
   return parts.length > 0 ? currentTheme.dim(` · ${parts.join(' · ')}`) : '';
