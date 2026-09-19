@@ -1258,7 +1258,7 @@ describe('ToolCallComponent', () => {
     vi.setSystemTime(30_000);
 
     out = strip(component.render(120).join('\n'));
-    expect(out).toContain('Explore Agent Completed (explore project xxx) · 1/1 tool · 12s');
+    expect(out).toContain('Explore Agent Completed (explore project xxx) · 0/1 tool · 12s');
     expect(out).not.toContain('think3');
     expect(out).toContain('│ answer3');
     expect(out).not.toContain('Used Agent');

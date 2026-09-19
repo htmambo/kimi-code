@@ -23,6 +23,7 @@ import { currentTheme } from '#/tui/theme';
 import { formatTokenCount } from '#/utils/usage/usage-format';
 
 import type { ToolCallComponent, ToolCallSubagentSnapshot } from './tool-call';
+import { formatToolCount } from './tool-count-format';
 
 const THROTTLE_MS = 200;
 
@@ -315,10 +316,8 @@ function formatStats(snap: ToolCallSubagentSnapshot): string {
   const parts: string[] = [];
   if (snap.model !== undefined) parts.push(snap.model);
   if (snap.effort !== undefined) parts.push(snap.effort);
-  const ongoing = snap.toolCountOngoing;
-  const finished = snap.toolCountFinished;
-  const total = ongoing + finished;
-  if (total > 0) parts.push(`${String(ongoing)}/${String(total)} tool${total === 1 ? '' : 's'}`);
+  const label = formatToolCount(snap.toolCountOngoing, snap.toolCountOngoing + snap.toolCountFinished);
+  if (label !== null) parts.push(label);
   if (snap.elapsedSeconds !== undefined) parts.push(formatElapsed(snap.elapsedSeconds));
   if (snap.tokens > 0) parts.push(formatTokens(snap.tokens));
   return currentTheme.dim(` · ${parts.join(' · ')}`);
@@ -366,12 +365,8 @@ function formatHeaderTail(args: {
   readonly elapsedSeconds: number | undefined;
 }): string {
   const parts: string[] = [];
-  const total = args.toolCountFinished + args.toolCountOngoing;
-  if (total > 0) {
-    parts.push(
-      `${String(args.toolCountOngoing)}/${String(total)} tool${total === 1 ? '' : 's'}`,
-    );
-  }
+  const label = formatToolCount(args.toolCountOngoing, args.toolCountFinished + args.toolCountOngoing);
+  if (label !== null) parts.push(label);
   if (args.tokens > 0) parts.push(formatTokens(args.tokens));
   if (args.elapsedSeconds !== undefined) parts.push(formatElapsed(args.elapsedSeconds));
   return parts.length > 0 ? currentTheme.dim(` · ${parts.join(' · ')}`) : '';

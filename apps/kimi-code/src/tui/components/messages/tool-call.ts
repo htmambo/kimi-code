@@ -37,6 +37,7 @@ import { formatTokenCount } from '#/utils/usage/usage-format';
 
 import { agentSwarmResultSummaryFromOutput } from './agent-swarm-progress';
 import { PlanBoxComponent } from './plan-box';
+import { formatToolCount } from './tool-count-format';
 import { TruncatedHeaderLine, type HeaderContent } from './truncated-header-line';
 import { ShellExecutionComponent } from './shell-execution';
 import { countNonEmptyLines, pickChip } from './tool-renderers/chip';
@@ -1103,6 +1104,17 @@ export class ToolCallComponent extends Container {
 
   getSubagentSnapshot(): ToolCallSubagentSnapshot {
     const finished = this.finishedSubCalls.length + this.hiddenSubCallCount;
+    // When the subagent has reached a terminal phase, every "ongoing" sub-tool
+    // call is implicitly done — the agent run cannot finish with a tool still
+    // in flight, so any leftover entry is dangling state. Folding it into
+    // finished at the snapshot layer keeps the rendered `x/y tools` aligned
+    // with the phase chip ("done" + non-zero ongoing would contradict).
+    const derivedPhase = this.getDerivedSubagentPhase();
+    const isTerminal = derivedPhase === 'done' || derivedPhase === 'failed' || derivedPhase === 'backgrounded';
+    const rawOngoing = this.ongoingSubCalls.size;
+    const ongoing = isTerminal ? 0 : rawOngoing;
+    const effectiveFinished = isTerminal ? finished + rawOngoing : finished;
+    const total = effectiveFinished + ongoing;
     const contextTokens = this.subagentContextTokens;
     const tokens =
       contextTokens && contextTokens > 0
@@ -1128,7 +1140,6 @@ export class ToolCallComponent extends Container {
     // `subagentPhase === 'backgrounded'` even after its ToolResult lands, so
     // the group card shows `◐ backgrounded` rather than `✓ Completed`. Reuse
     // the standalone derivation so both paths agree.
-    const derivedPhase = this.getDerivedSubagentPhase();
     const errorText =
       this.subagentError ?? (derivedPhase === 'failed' ? this.result?.output : undefined);
     return {
@@ -1139,9 +1150,14 @@ export class ToolCallComponent extends Container {
       model: this.subagentModel,
       effort: this.subagentEffort,
       phase: derivedPhase,
-      toolCountFinished: finished,
-      toolCountOngoing: this.ongoingSubCalls.size,
-      toolCount: finished,
+      toolCountFinished: effectiveFinished,
+      toolCountOngoing: ongoing,
+      // Legacy alias — exposed as the cumulative total (finished + ongoing
+      // including hidden past the visible cap), matching user expectations of
+      // "how many sub-tool calls have run". The historical alias equalled
+      // finished only; expanding to total is the correct interpretation and
+      // is monotonic in the old direction (old value ≤ new total).
+      toolCount: total,
       elapsedSeconds: this.getSubagentElapsedSeconds(),
       tokens,
       isError: derivedPhase === 'failed',
@@ -2003,12 +2019,11 @@ export class ToolCallComponent extends Container {
         break;
       case 'done': {
         parts.push(currentTheme.fg('success', '✓ done'));
-        const ongoing = this.ongoingSubCalls.size;
-        const finished = this.finishedSubCalls.length + this.hiddenSubCallCount;
-        const total = ongoing + finished;
-        if (total > 0) {
-          parts.push(`${String(ongoing)}/${String(total)} tool${total === 1 ? '' : 's'}`);
-        }
+        // Snapshot is the single source of truth — phase-aware folding
+        // (terminal-phase dangling → finished) is already applied.
+        const snap = this.getSubagentSnapshot();
+        const label = formatToolCount(snap.toolCountOngoing, snap.toolCount);
+        if (label !== null) parts.push(label);
         const tokens =
           formatSubagentContextTokens(this.subagentContextTokens) ??
           formatSubagentTokens(this.subagentUsage);
@@ -2107,11 +2122,12 @@ export class ToolCallComponent extends Container {
     const parts: string[] = [];
     if (this.subagentModel !== undefined) parts.push(this.subagentModel);
     if (this.subagentEffort !== undefined) parts.push(this.subagentEffort);
-    const ongoing = this.ongoingSubCalls.size;
-    const total = this.subToolActivities.size;
-    if (total > 0) {
-      parts.push(`${String(ongoing)}/${String(total)} tool${total === 1 ? '' : 's'}`);
-    }
+    // Snapshot is the SSOT — phase-aware folding (terminal-phase dangling
+    // → finished) is already applied, and the total is the canonical union
+    // of finished + ongoing (including hidden past the visible cap).
+    const snap = this.getSubagentSnapshot();
+    const label = formatToolCount(snap.toolCountOngoing, snap.toolCount);
+    if (label !== null) parts.push(label);
     const elapsed = this.getSubagentElapsedSeconds();
     if (elapsed !== undefined) parts.push(formatElapsed(elapsed));
     const tokens =
