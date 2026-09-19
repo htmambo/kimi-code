@@ -279,6 +279,10 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     contextTokens: 0,
     maxContextTokens: 0,
     cumulativeTokens: 0,
+    cumulativeInputTokens: 0,
+    cumulativeOutputTokens: 0,
+    cumulativeCacheReadTokens: 0,
+    cumulativeCacheCreationTokens: 0,
     isCompacting: false,
     isReplaying: false,
     streamingPhase: 'idle',
@@ -2213,6 +2217,26 @@ export class KimiTUI {
     this.setAppState({ additionalDirs: [...additionalDirs] });
   }
 
+  /**
+   * Build the cumulative-token patch from a session-wide `usage.total` payload.
+   * Splits the total into `cumulativeTokens` plus the four input/output fields
+   * the footer reads. Returns `cumulativeTokens: 0` (no other fields) when no
+   * payload is present, so the cumulative total stays a stable reset point
+   * while the split fields remain `undefined` until the first real report.
+   */
+  private usagePatchFromTotal(total: TokenUsage | undefined): Partial<AppState> {
+    if (total === undefined) {
+      return { cumulativeTokens: 0 };
+    }
+    return {
+      cumulativeTokens: sumTokenUsage(total),
+      cumulativeInputTokens: total.inputOther,
+      cumulativeOutputTokens: total.output,
+      cumulativeCacheReadTokens: total.inputCacheRead,
+      cumulativeCacheCreationTokens: total.inputCacheCreation,
+    };
+  }
+
   // =========================================================================
   // Session Runtime
   // =========================================================================
@@ -2431,8 +2455,7 @@ export class KimiTUI {
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,
       contextUsage: status.contextUsage,
-      cumulativeTokens:
-        status.usage?.total === undefined ? 0 : sumTokenUsage(status.usage.total),
+      ...this.usagePatchFromTotal(status.usage?.total),
       sessionTitle: session.summary?.title ?? null,
       goal: goalResult.goal,
     });

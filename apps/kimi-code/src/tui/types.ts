@@ -12,6 +12,7 @@ import type {
 
 import type { MarkdownConfig, NotificationsConfig, StatusLineConfig, UpgradePreferences } from './config';
 import type { PendingApproval, PendingQuestion } from './reverse-rpc/types';
+import type { StepTiming } from '#/utils/usage/debug-timing';
 import type { ColorToken, ThemeName } from './theme';
 
 export type BannerDisplay = 'always' | 'once' | 'cooldown';
@@ -63,6 +64,16 @@ export interface AppState {
   contextTokens: number;
   maxContextTokens: number;
   cumulativeTokens?: number;
+  /** Cumulative session inputOther tokens (cache fields tracked separately). */
+  cumulativeInputTokens?: number;
+  /** Cumulative session output tokens. */
+  cumulativeOutputTokens?: number;
+  /** Cumulative session cache-hit tokens (`inputCacheRead`). */
+  cumulativeCacheReadTokens?: number;
+  /** Cumulative session cache-creation tokens (`inputCacheCreation`). */
+  cumulativeCacheCreationTokens?: number;
+  /** Stable TPS snapshot from the most recent completed step. */
+  stepTiming?: StepTiming;
   isCompacting: boolean;
   isReplaying: boolean;
   streamingPhase: 'idle' | 'waiting' | 'thinking' | 'composing' | 'shell';

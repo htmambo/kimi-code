@@ -34,6 +34,7 @@ import type {
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { MoonLoader } from '../components/chrome/moon-loader';
+import { computeStepTps } from '#/utils/usage/debug-timing';
 import { buildGoalMarker } from '../components/messages/goal-markers';
 import { StatusMessageComponent } from '../components/messages/status-message';
 import {
@@ -437,6 +438,11 @@ export class SessionEventHandler {
     this.host.noteStepUsage(event.usage);
     this.maybeShowDebugTiming(event);
 
+    const timing = computeStepTps(event.usage?.output, event.llmStreamDurationMs);
+    if (timing !== undefined) {
+      this.host.setAppState({ stepTiming: timing });
+    }
+
     if (event.providerFinishReason === 'filtered') {
       this.host.showNotice(
         'Provider safety policy blocked the response.',
@@ -748,7 +754,12 @@ export class SessionEventHandler {
     if (event.model !== undefined) patch.model = event.model;
     if (event.thinkingEffort !== undefined) patch.thinkingEffort = event.thinkingEffort;
     if (event.usage?.total !== undefined) {
-      patch.cumulativeTokens = sumTokenUsage(event.usage.total);
+      const u = event.usage.total;
+      patch.cumulativeTokens = sumTokenUsage(u);
+      patch.cumulativeInputTokens = u.inputOther;
+      patch.cumulativeOutputTokens = u.output;
+      patch.cumulativeCacheReadTokens = u.inputCacheRead;
+      patch.cumulativeCacheCreationTokens = u.inputCacheCreation;
     }
     if (Object.keys(patch).length > 0) this.host.setAppState(patch);
     if (event.swarmMode === false) {

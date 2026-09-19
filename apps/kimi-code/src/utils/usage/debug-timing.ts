@@ -34,7 +34,33 @@ export interface StepTimingInput {
 // drain in 1ms), so dividing output tokens by it would report inflated rates
 // like tens of thousands of tok/s. In that case we report the raw counts
 // instead of a meaningless ratio.
-const MIN_STREAM_MS_FOR_TPS = 50;
+export const MIN_STREAM_MS_FOR_TPS = 50;
+
+export interface StepTiming {
+  readonly outputTokens: number;
+  readonly streamMs: number;
+  readonly tps: number;
+}
+
+/**
+ * Compute a stable per-step TPS snapshot from the provider-reported token count
+ * and the measured stream window. Returns `undefined` when the stream was too
+ * short to produce a meaningful ratio (`MIN_STREAM_MS_FOR_TPS`) or when either
+ * input is missing. Shared between the `[Debug]` step line and the footer
+ * status line so the two displays cannot drift.
+ */
+export function computeStepTps(
+  outputTokens: number | undefined,
+  streamMs: number | undefined,
+): StepTiming | undefined {
+  if (outputTokens === undefined || streamMs === undefined) return undefined;
+  if (outputTokens <= 0 || streamMs < MIN_STREAM_MS_FOR_TPS) return undefined;
+  return {
+    outputTokens,
+    streamMs,
+    tps: outputTokens / (streamMs / 1000),
+  };
+}
 
 export function formatStepDebugTiming(input: StepTimingInput): string | undefined {
   const latency = input.llmFirstTokenLatencyMs;
@@ -43,17 +69,15 @@ export function formatStepDebugTiming(input: StepTimingInput): string | undefine
 
   const parts: string[] = [`TTFT: ${formatTtft(input)}`];
   const outputTokens = input.usage?.output;
-  if (outputTokens !== undefined && outputTokens > 0) {
-    if (streamMs >= MIN_STREAM_MS_FOR_TPS) {
-      const tps = (outputTokens / (streamMs / 1000)).toFixed(1);
-      parts.push(
-        `TPS: ${tps} tok/s (${outputTokens} tokens in ${formatDuration(streamMs)}${formatDecodeSplit(input)})`,
-      );
-    } else {
-      parts.push(
-        `${outputTokens} tokens in ${formatDuration(streamMs)} (stream too short for TPS)`,
-      );
-    }
+  const timing = computeStepTps(outputTokens, streamMs);
+  if (timing !== undefined) {
+    parts.push(
+      `TPS: ${timing.tps.toFixed(1)} tok/s (${timing.outputTokens} tokens in ${formatDuration(timing.streamMs)}${formatDecodeSplit(input)})`,
+    );
+  } else if (outputTokens !== undefined && outputTokens > 0 && streamMs !== undefined) {
+    parts.push(
+      `${outputTokens} tokens in ${formatDuration(streamMs)} (stream too short for TPS)`,
+    );
   }
 
   const inputTokens = usageInputTotal(input.usage);

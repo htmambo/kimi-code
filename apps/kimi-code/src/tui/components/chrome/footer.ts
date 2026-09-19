@@ -185,6 +185,61 @@ function formatContextStatus(usage: number, tokens?: number, maxTokens?: number)
   return `context: ${String(usagePercentFromRatio(usage))}%`;
 }
 
+/**
+ * Compose the left-side token status string for footer line 2.
+ *
+ * Layout (highest priority first; the lowest-priority segments are dropped
+ * when the result would exceed `maxWidth`):
+ *   `47.0 tok/s · ↓12k ↑2k · ↻10k +0.5k · hit 95%`
+ *
+ * - `speed`     — tokens/s from the most recent completed step (AppState.stepTiming)
+ * - `IN/OUT`    — session-cumulative inputOther (↓) and output (↑); fields
+ *                 equal to 0 are hidden
+ * - `CR/CW`     — session-cumulative cache-read (↻) and cache-creation (+);
+ *                 fields equal to 0 are hidden
+ * - `hit`       — `cacheRead / (inputOther + cacheRead + cacheCreation)`;
+ *                 hidden when no cache read happened
+ *
+ * Returns `undefined` when there is no data to show, or when even the highest
+ * priority segment cannot fit in `maxWidth`. The caller should treat
+ * `undefined` as "leave this slot empty and fall through to hints".
+ */
+export function formatTokenStatus(state: AppState, maxWidth: number): string | undefined {
+  if (maxWidth <= 0) return undefined;
+  const inputOther = state.cumulativeInputTokens ?? 0;
+  const output = state.cumulativeOutputTokens ?? 0;
+  const cacheRead = state.cumulativeCacheReadTokens ?? 0;
+  const cacheCreation = state.cumulativeCacheCreationTokens ?? 0;
+  const totalInput = inputOther + cacheRead + cacheCreation;
+
+  const segments: string[] = [];
+  if (state.stepTiming !== undefined) {
+    const tps = state.stepTiming.tps;
+    segments.push(`${tps >= 100 ? tps.toFixed(0) : tps.toFixed(1)} tok/s`);
+  }
+  const io: string[] = [];
+  if (inputOther > 0) io.push(`↓${formatTokenCount(inputOther)}`);
+  if (output > 0) io.push(`↑${formatTokenCount(output)}`);
+  if (io.length > 0) segments.push(io.join(' '));
+  const cache: string[] = [];
+  if (cacheRead > 0) cache.push(`↻${formatTokenCount(cacheRead)}`);
+  if (cacheCreation > 0) cache.push(`+${formatTokenCount(cacheCreation)}`);
+  if (cache.length > 0) segments.push(cache.join(' '));
+  if (cacheRead > 0 && totalInput > 0) {
+    segments.push(`hit ${String(Math.round((cacheRead / totalInput) * 100))}%`);
+  }
+
+  if (segments.length === 0) return undefined;
+  // Drop the lowest-priority segments until the result fits. The first
+  // segment (speed) is the anchor — if even that does not fit, return
+  // undefined so the caller can fall back to hints.
+  for (let keep = segments.length; keep >= 1; keep--) {
+    const candidate = segments.slice(0, keep).join(' · ');
+    if (visibleWidth(candidate) <= maxWidth) return candidate;
+  }
+  return undefined;
+}
+
 /** Local HH:MM:SS clock time for the usage block's "updated" stamp. */
 function formatClockTime(ms: number): string {
   const d = new Date(ms);
@@ -376,7 +431,8 @@ export class FooterComponent implements Component {
       }
     }
 
-    // ── Line 2: transient hint or first quota row or custom status line (left) + context (right) ──
+    // ── Line 2: token status (left, highest priority) or hint or ctrl+o+ |
+    //                   context (right) ──
     const usage = this.usageBlock();
     const contextText = formatContextStatus(
       state.contextUsage,
@@ -386,8 +442,17 @@ export class FooterComponent implements Component {
     const contextWidth = visibleWidth(contextText);
     let line2: string;
     const line2ConsumedQuotaRow = false;
+    // Token status gets the left slot whenever it has data and there is
+    // enough room. It does not displace hints — hints replace token status
+    // when they fire (e.g. exit confirmation, /goal objective warnings),
+    // because those messages are short-lived and more urgent.
+    const tokenStatusWidth = Math.max(0, width - contextWidth - 1);
+    const tokenStatus = formatTokenStatus(state, tokenStatusWidth);
     const hint = this.transientHint ?? this.warningHint;
-    if (hint) {
+    if (tokenStatus !== undefined) {
+      const pad = Math.max(0, width - visibleWidth(tokenStatus) - contextWidth);
+      line2 = chalk.hex(colors.textDim)(tokenStatus) + ' '.repeat(pad) + chalk.hex(colors.text)(contextText);
+    } else if (hint) {
       const maxHintWidth = Math.max(0, width - contextWidth - 1);
       const shownHint =
         visibleWidth(hint) <= maxHintWidth ? hint : truncateToWidth(hint, maxHintWidth, '…');
