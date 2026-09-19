@@ -206,10 +206,10 @@ function formatContextStatus(usage: number, tokens?: number, maxTokens?: number)
  */
 export function formatTokenStatus(state: AppState, maxWidth: number): string | undefined {
   if (maxWidth <= 0) return undefined;
-  const inputOther = state.cumulativeInputTokens ?? 0;
-  const output = state.cumulativeOutputTokens ?? 0;
-  const cacheRead = state.cumulativeCacheReadTokens ?? 0;
-  const cacheCreation = state.cumulativeCacheCreationTokens ?? 0;
+  const inputOther = state.cumulativeInputTokens;
+  const output = state.cumulativeOutputTokens;
+  const cacheRead = state.cumulativeCacheReadTokens;
+  const cacheCreation = state.cumulativeCacheCreationTokens;
   const totalInput = inputOther + cacheRead + cacheCreation;
 
   const segments: string[] = [];
@@ -226,7 +226,7 @@ export function formatTokenStatus(state: AppState, maxWidth: number): string | u
   if (cacheCreation > 0) cache.push(`+${formatTokenCount(cacheCreation)}`);
   if (cache.length > 0) segments.push(cache.join(' '));
   if (cacheRead > 0 && totalInput > 0) {
-    segments.push(`hit ${String(Math.round((cacheRead / totalInput) * 100))}%`);
+    segments.push(`hit ${Math.round((cacheRead / totalInput) * 100)}%`);
   }
 
   if (segments.length === 0) return undefined;
@@ -446,7 +446,7 @@ export class FooterComponent implements Component {
     // enough room. It does not displace hints — hints replace token status
     // when they fire (e.g. exit confirmation, /goal objective warnings),
     // because those messages are short-lived and more urgent.
-    const tokenStatusWidth = Math.max(0, width - contextWidth - 1);
+    const tokenStatusWidth = Math.max(0, width - contextWidth - (contextWidth > 0 ? 1 : 0));
     const tokenStatus = formatTokenStatus(state, tokenStatusWidth);
     const hint = this.transientHint ?? this.warningHint;
     if (tokenStatus !== undefined) {

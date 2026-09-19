@@ -6,7 +6,6 @@ import type {
   ProviderConfig,
   PromptPart,
   ThinkingEffort,
-  TokenUsage,
   ToolInputDisplay,
 } from '@moonshot-ai/kimi-code-sdk';
 
@@ -63,15 +62,16 @@ export interface AppState {
   contextUsage: number;
   contextTokens: number;
   maxContextTokens: number;
-  cumulativeTokens?: number;
+  /** Cumulative session token usage total (sum of input + output + cache fields). */
+  cumulativeTokens: number;
   /** Cumulative session inputOther tokens (cache fields tracked separately). */
-  cumulativeInputTokens?: number;
+  cumulativeInputTokens: number;
   /** Cumulative session output tokens. */
-  cumulativeOutputTokens?: number;
+  cumulativeOutputTokens: number;
   /** Cumulative session cache-hit tokens (`inputCacheRead`). */
-  cumulativeCacheReadTokens?: number;
+  cumulativeCacheReadTokens: number;
   /** Cumulative session cache-creation tokens (`inputCacheCreation`). */
-  cumulativeCacheCreationTokens?: number;
+  cumulativeCacheCreationTokens: number;
   /** Stable TPS snapshot from the most recent completed step. */
   stepTiming?: StepTiming;
   isCompacting: boolean;
@@ -105,10 +105,6 @@ export interface AppState {
   mcpServersSummary: string | null;
   /** Optional banner shown below the welcome panel; null means no banner to render. */
   banner?: BannerState | null;
-}
-
-export function sumTokenUsage(total: TokenUsage): number {
-  return total.inputOther + total.output + total.inputCacheRead + total.inputCacheCreation;
 }
 
 export interface StepRetryState {

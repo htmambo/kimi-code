@@ -34,6 +34,7 @@ import type {
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { MoonLoader } from '../components/chrome/moon-loader';
+import { cumulativeUsagePatch } from '../utils/usage-patch';
 import { computeStepTps } from '#/utils/usage/debug-timing';
 import { buildGoalMarker } from '../components/messages/goal-markers';
 import { StatusMessageComponent } from '../components/messages/status-message';
@@ -83,7 +84,6 @@ import type { TasksBrowserController } from './tasks-browser';
 import { SubAgentEventHandler } from './subagent-event-handler';
 import { NotifyController } from './notify';
 import {
-  sumTokenUsage,
   type AppState,
   type LivePaneState,
   type QueuedMessage,
@@ -754,12 +754,7 @@ export class SessionEventHandler {
     if (event.model !== undefined) patch.model = event.model;
     if (event.thinkingEffort !== undefined) patch.thinkingEffort = event.thinkingEffort;
     if (event.usage?.total !== undefined) {
-      const u = event.usage.total;
-      patch.cumulativeTokens = sumTokenUsage(u);
-      patch.cumulativeInputTokens = u.inputOther;
-      patch.cumulativeOutputTokens = u.output;
-      patch.cumulativeCacheReadTokens = u.inputCacheRead;
-      patch.cumulativeCacheCreationTokens = u.inputCacheCreation;
+      Object.assign(patch, cumulativeUsagePatch(event.usage.total));
     }
     if (Object.keys(patch).length > 0) this.host.setAppState(patch);
     if (event.swarmMode === false) {

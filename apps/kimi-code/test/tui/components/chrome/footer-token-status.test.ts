@@ -5,17 +5,15 @@ import type { AppState } from '#/tui/types';
 
 function makeState(overrides: Partial<AppState> = {}): AppState {
   return {
-    ...({
-      contextUsage: 0,
-      contextTokens: 0,
-      maxContextTokens: 0,
-      cumulativeTokens: 0,
-      cumulativeInputTokens: 0,
-      cumulativeOutputTokens: 0,
-      cumulativeCacheReadTokens: 0,
-      cumulativeCacheCreationTokens: 0,
-      isCompacting: false,
-    } as AppState),
+    contextUsage: 0,
+    contextTokens: 0,
+    maxContextTokens: 0,
+    cumulativeTokens: 0,
+    cumulativeInputTokens: 0,
+    cumulativeOutputTokens: 0,
+    cumulativeCacheReadTokens: 0,
+    cumulativeCacheCreationTokens: 0,
+    isCompacting: false,
     ...overrides,
   } as AppState;
 }
@@ -97,10 +95,11 @@ describe('formatTokenStatus', () => {
     expect(formatTokenStatus(state, 200)).toBe('↓12k · +5k');
   });
 
-  it('treats undefined cumulative fields as zero (hide them)', () => {
+  it('treats zero-valued cumulative fields as "no data" (hide them)', () => {
     const state = makeState({
       cumulativeInputTokens: 12_288,
-      // cumulativeCacheReadTokens / cumulativeCacheCreationTokens not set
+      cumulativeCacheReadTokens: 0,
+      cumulativeCacheCreationTokens: 0,
     });
     expect(formatTokenStatus(state, 200)).toBe('↓12k');
   });

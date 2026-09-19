@@ -148,7 +148,6 @@ import type { ColorToken, ResolvedTheme, ThemeName } from './theme';
 import { createTUIState, type TUIState } from './tui-state';
 import {
   INITIAL_LIVE_PANE,
-  sumTokenUsage,
   type AppState,
   type InlineSkillActivation,
   type KimiTUIOptions,
@@ -167,6 +166,7 @@ import {
   isExpandable,
   isExpandedComponent,
 } from './utils/component-capabilities';
+import { cumulativeUsagePatch } from './utils/usage-patch';
 import { isDeadTerminalError } from './utils/dead-terminal';
 import { formatErrorMessage } from './utils/event-payload';
 import { pickForegroundTasks } from './utils/foreground-task';
@@ -2219,22 +2219,12 @@ export class KimiTUI {
 
   /**
    * Build the cumulative-token patch from a session-wide `usage.total` payload.
-   * Splits the total into `cumulativeTokens` plus the four input/output fields
-   * the footer reads. Returns `cumulativeTokens: 0` (no other fields) when no
-   * payload is present, so the cumulative total stays a stable reset point
-   * while the split fields remain `undefined` until the first real report.
+   * Delegates to `cumulativeUsagePatch` (a pure helper so the reset-vs-update
+   * branching can be unit-tested in isolation). See that helper for the
+   * contract on `stepTiming` and the reset semantics.
    */
   private usagePatchFromTotal(total: TokenUsage | undefined): Partial<AppState> {
-    if (total === undefined) {
-      return { cumulativeTokens: 0 };
-    }
-    return {
-      cumulativeTokens: sumTokenUsage(total),
-      cumulativeInputTokens: total.inputOther,
-      cumulativeOutputTokens: total.output,
-      cumulativeCacheReadTokens: total.inputCacheRead,
-      cumulativeCacheCreationTokens: total.inputCacheCreation,
-    };
+    return cumulativeUsagePatch(total);
   }
 
   // =========================================================================
