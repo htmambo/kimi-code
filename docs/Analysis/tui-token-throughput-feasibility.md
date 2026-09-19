@@ -125,3 +125,42 @@ if (state.cumulativeTokens !== undefined && state.cumulativeTokens > 0) {
 - `apps/kimi-code/src/utils/usage/debug-timing.ts:39-78` — 既有 TPS 计算
 - `packages/agent-core-v2/src/agent/loop/turnEvents.ts:113-129` — `TurnStepCompletedPayload`
 - `apps/kimi-code/src/tui/components/chrome/footer.ts:43, 477-491` — 既有 footer slot 机制
+
+## 决策落地状态（后续实施追踪）
+
+本节对照本调研提出的 4 项 P0 + 实施路线的实际落地情况，便于读者快速判断哪些决策已闭环、哪些仍待办。
+
+| 调研项 | 落地状态 | 说明 |
+|---|---|---|
+| ① footer 累计 tokens 展示 | ✅ 已落地（commit `5c77622e`） | `formatTokenStatus(state, maxWidth)`，数据流经 `cumulativeUsagePatch` 聚合，AppState 新增 4 个拆分字段 |
+| ② 步骤完成稳定 TPS | ✅ 已落地（同上） | `computeStepTps` 抽到 `utils/usage/debug-timing.ts`，footer 与 `[Debug]` step 行共用 |
+| ③ 实时 streaming 滚动 TPS | ⏸ 未落地 | 用户在落地阶段确认"先做最近一步稳定 TPS，③ 留作后续"，可作 `KIMI_CODE_EXPERIMENTAL_TPS_LIVE` 灰度 |
+| 多 subagent 场景 | ⚠️ 隐式采用"最近一步"语义 | footer 是全局的，当前显示的是整个 session 最近完成的一步的 TPS；后续若需分 subagent，需新增 scope 概念 |
+| TUI 渲染性能 / 节流 | ✅ 已规避 | 选 ② 而非 ③ 本身就不需要 per-delta 重渲染；`StepCompleted` 是低频事件（每步一次） |
+| 测试覆盖 | ✅ 已落地 | `formatTokenStatus` 13 用例 + `cumulativeUsagePatch` 4 用例 + `computeStepTps` 隐含在 debug-timing 路径中 |
+| 工时预估 | 偏乐观，实际更接近 1 个工作日（含 4 轮 External Review） | 后续调研类文档工时建议拆"实现 / 测试 / CR"三列 |
+
+### 行号漂移说明
+
+调研中给出的 `session-event-handler.ts:750-752`、`debug-timing.ts:39-78`、`turnEvents.ts:113-129` 等行号在重构后已偏移。当前实现的相关锚点（External Review 已对齐）：
+
+- `apps/kimi-code/src/tui/utils/usage-patch.ts#cumulativeUsagePatch` — AppState 累计 token patch 构造
+- `apps/kimi-code/src/tui/controllers/session-event-handler.ts#handleAgentStatusUpdated` — 累计 token 写入点
+- `apps/kimi-code/src/tui/controllers/session-event-handler.ts#handleStepCompleted` — `stepTiming` 写入点
+- `apps/kimi-code/src/tui/components/chrome/footer.ts#formatTokenStatus` — footer line 2 左侧渲染
+- `apps/kimi-code/src/utils/usage/debug-timing.ts#computeStepTps` — 共享 TPS 计算
+
+### 后续可考虑（非阻塞）
+
+- 把 ③ 实时 TPS 作为实验性 feature flag（`KIMI_CODE_EXPERIMENTAL_TPS_LIVE`），字符/token 偏差需在文档中标注为"近似"
+- 多 subagent 场景下若需分别显示每个 agent 的 TPS，可在 `AgentGroupComponent` 的 row stats 槽位扩展（已存在 row stats）
+- `usage` slot 当前只有 5h/weekly 配额进度条，可考虑把累计 tokens 也合并到 `usage` slot 下以节省 line 2 横向空间
+
+### 当前隐式语义与回滚路径（用户提示）
+
+- **TPS 反映全局最近完成的单步吞吐**，多并发 subagent 场景下不区分谁先跑完。后续如需分 agent 显示，扩展 `AgentGroupComponent` 的 row stats 即可
+- **回滚方式**：①+② 通过 `status_line.items` 已可配置隐藏；若 `cumulativeUsagePatch` 引发渲染异常，可移除 `tokens` / `tps` 相关配置项逻辑降级，或直接 revert commit `5c77622e` + `94d0143b`（无破坏性数据依赖）
+
+### 已覆盖的边界用例（对应外部评审要求）
+
+`cumulativeUsagePatch` 4 个单测覆盖：reset 分支精确匹配、dirty-state bleed-through、stepTiming 保留语义、partial payload NaN 防御。`formatTokenStatus` 13 个单测覆盖：空状态、宽度边界、零值隐藏、渐进裁剪 5 档、单复数规则、单元素分组。`formatToolCount` 6 个单测覆盖：total=0、负数、ongoing 越界 clamp。`computeStepTps` 沿用既有 50ms 防抖门槛（`MIN_STREAM_MS_FOR_TPS`），无除零风险。
