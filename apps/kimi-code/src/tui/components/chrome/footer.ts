@@ -35,6 +35,7 @@ import {
   safeUsageRatio,
   usagePercent,
   usagePercentFromRatio,
+  WEEKLY_QUOTA_LABEL,
 } from '#/utils/usage/usage-format';
 
 /** What the footer's fixed ctrl+o hint offers: expand collapsed tool output, or collapse it again. */
@@ -554,7 +555,7 @@ export class FooterComponent implements Component {
     const usage = state.managedUsage;
     if (usage !== undefined && usage !== null && usage.rows.length > 0) {
       const badgeRow =
-        usage.rows.find((row) => row.label === 'Weekly limit') ?? usage.rows[0]!;
+        usage.rows.find((row) => row.label === WEEKLY_QUOTA_LABEL) ?? usage.rows[0]!;
       const ratio = safeUsageRatio(badgeRow.usedRatio);
       const pct = usagePercentFromRatio(badgeRow.usedRatio);
       const severity = ratioSeverity(ratio);

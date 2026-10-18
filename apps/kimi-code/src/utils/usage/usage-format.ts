@@ -101,6 +101,9 @@ export interface QuotaUsageRow {
   readonly breakdown?: MonthlyUsageBreakdown;
 }
 
+/** Display label for the weekly quota window; the footer's status-line badge matches on this. */
+export const WEEKLY_QUOTA_LABEL = 'Weekly limit';
+
 /**
  * Assemble the plan-usage rows for the `/usage` report from the managed
  * quota: one row per quota window the backend served — 5h, weekly,
@@ -118,7 +121,7 @@ export function quotaUsageRows(quota: ManagedQuota): QuotaUsageRow[] {
     rows.push({ name, usedRatio: entry.usedRatio, resetAt: entry.resetAt, breakdown });
   };
   push('5h limit', quota.usages.limit5h);
-  push('Weekly limit', quota.usages.limit7d);
+  push(WEEKLY_QUOTA_LABEL, quota.usages.limit7d);
   push('Monthly limit', quota.usages.monthTotal, monthlyBreakdown(quota));
   return rows;
 }
